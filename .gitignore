@@ -1,3 +1,7 @@
+# Git
+.gitignore
+.gitattributes
+
 # Maven
 target/
 pom.xml.tag
