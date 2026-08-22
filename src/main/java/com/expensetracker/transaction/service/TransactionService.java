@@ -91,6 +91,9 @@ public class TransactionService {
 
         log.info("Getting transaction for userId: {}", userId);
         Transaction tx = transactionRepository.findTransactionById(id);
+        if (!tx.getUser().getId().equals(userId)) {
+            throw new AppException("Unauthorized", HttpStatus.FORBIDDEN);
+        }
         return tx;
 
     }

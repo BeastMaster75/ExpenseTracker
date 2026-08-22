@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UserAuthFlowTest {
 
     private static final String EMAIL = "authflow-probe@example.com";
-    private static final String PASSWORD = "supersecret123";
+    private static final String PASSWORD = "Supersecret123!";
     private static final int OTP = 123456;
 
     @Autowired
