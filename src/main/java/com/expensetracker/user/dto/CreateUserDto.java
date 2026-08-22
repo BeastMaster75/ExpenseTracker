@@ -1,5 +1,6 @@
 package com.expensetracker.user.dto;
 
+import com.expensetracker.common.validation.StrongPassword;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -19,6 +20,6 @@ public class CreateUserDto {
     private String email;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 8, message = "Password must be at least 8 characters")
+    @StrongPassword
     private String password;
 }

@@ -22,7 +22,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
-
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +46,7 @@ public class UserService {
     private final EmailService sendEmail;
     private final ResendOtp resendOtp;
     private final ObjectMapper objectMapper;
+    private final PasswordHistoryService passwordHistoryService;
 
     public UserService(
             UserRepository userRepository,
@@ -56,7 +56,8 @@ public class UserService {
             RedisService redisService,
             EmailService sendEmail,
             ResendOtp resendOtp,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            PasswordHistoryService passwordHistoryService
     ) {
         this.userRepository = userRepository;
         this.tokenService = tokenService;
@@ -66,6 +67,7 @@ public class UserService {
         this.sendEmail = sendEmail;
         this.resendOtp = resendOtp;
         this.objectMapper = objectMapper;
+        this.passwordHistoryService = passwordHistoryService;
     }
 
     @Value("${jwt.refresh-secret}")
@@ -399,6 +401,10 @@ public class UserService {
             );
         }
 
+        passwordHistoryService.assertNotReused(existingUser, dto.getNewPassword());
+
+        passwordHistoryService.record(existingUser, existingUser.getPassword());
+
         existingUser.setPassword(
                 hashSecurity.hash(dto.getNewPassword())
         );
@@ -458,6 +464,10 @@ public class UserService {
                     HttpStatus.UNAUTHORIZED
             );
         }
+
+        passwordHistoryService.assertNotReused(existingUser, dto.getNewPassword());
+
+        passwordHistoryService.record(existingUser, existingUser.getPassword());
 
         existingUser.setPassword(
                 hashSecurity.hash(dto.getNewPassword())
