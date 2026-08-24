@@ -1,11 +1,21 @@
 package com.expensetracker.budget.entity;
 
-import jakarta.persistence.*;
 import com.expensetracker.user.entity.User;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(
         name = "budgets",
@@ -20,7 +30,7 @@ public class Budget {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
@@ -30,8 +40,10 @@ public class Budget {
     @Column(nullable = false)
     private String name;
 
+    // Server-owned: starts at zero, expenses add to it, BudgetResetService
+    // zeroes it at the start of each month. Never taken from a request.
     @Column(nullable = false)
-    private BigDecimal spending;
+    private BigDecimal spending = BigDecimal.ZERO;
 
     @Column(name = "amount_limit", nullable = false)
     private BigDecimal amountLimit;
@@ -48,9 +60,6 @@ public class Budget {
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
 
-    public Budget() {
-    }
-
     @PrePersist
     protected void onCreate() {
 
@@ -58,86 +67,11 @@ public class Budget {
 
         createdAt = now;
         updatedAt = now;
-
-        // New Budget is active by default.
-        deleted = false;
     }
 
     @PreUpdate
     protected void onUpdate() {
 
         updatedAt = LocalDateTime.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public User getUser() {
-        return user;
-    }
-
-    public void setUser(User user) {
-        this.user = user;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public BigDecimal getSpending() {
-        return spending;
-    }
-
-    public void setSpending(BigDecimal spending) {
-        this.spending = spending;
-    }
-
-    public BigDecimal getAmountLimit() {
-        return amountLimit;
-    }
-
-    public void setAmountLimit(BigDecimal amountLimit) {
-        this.amountLimit = amountLimit;
-    }
-
-    public LocalDate getPeriodMonth() {
-        return periodMonth;
-    }
-
-    public void setPeriodMonth(LocalDate periodMonth) {
-        this.periodMonth = periodMonth;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    public boolean isDeleted() {
-        return deleted;
-    }
-
-    public void setDeleted(boolean deleted) {
-        this.deleted = deleted;
     }
 }

@@ -1,151 +1,169 @@
 package com.expensetracker.budget.service;
 
-import com.expensetracker.budget.dto.BudgetRequestDTO;
-import com.expensetracker.budget.dto.BudgetResponseDTO;
+import com.expensetracker.auth.Authentication;
+import com.expensetracker.budget.dto.CreateBudgetDto;
+import com.expensetracker.budget.dto.UpdateBudgetDto;
+import com.expensetracker.budget.entity.Budget;
+import com.expensetracker.budget.repository.BudgetRepository;
 import com.expensetracker.common.exception.AppException;
+import com.expensetracker.user.entity.User;
+import com.expensetracker.user.repository.UserRepository;
+import io.jsonwebtoken.Claims;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import com.expensetracker.budget.repository.BudgetRepository;
-import com.expensetracker.user.repository.UserRepository;
-import com.expensetracker.user.entity.User;
-import com.expensetracker.budget.entity.Budget;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class BudgetService {
 
+    private static final Logger log = LoggerFactory.getLogger(BudgetService.class);
+
     private final BudgetRepository budgetRepository;
     private final UserRepository userRepository;
+    private final Authentication authentication;
 
     public BudgetService(
             BudgetRepository budgetRepository,
-            UserRepository userRepository) {
-
+            UserRepository userRepository,
+            Authentication authentication
+    ) {
         this.budgetRepository = budgetRepository;
         this.userRepository = userRepository;
+        this.authentication = authentication;
     }
 
-    public BudgetResponseDTO createBudget(BudgetRequestDTO request) {
+    private Long getUserId(String token) {
+        Claims claims = authentication.auth(token, false);
+        return claims.get("id", Long.class);
+    }
 
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() ->
-                        new RuntimeException("User not found"));
+    private Budget ownedBudget(Long id, Long userId) {
+        return budgetRepository.findByIdAndUserIdAndDeletedFalse(id, userId)
+                .orElseThrow(() -> new AppException("Budget not found", HttpStatus.NOT_FOUND));
+    }
 
-        // Transactions look budgets up by name, so a user cannot have two.
-        if (budgetRepository.existsByUserIdAndNameAndDeletedFalse(
-                user.getId(), request.getName())) {
+    @Transactional
+    public Budget createBudget(CreateBudgetDto dto, String token) {
 
-            throw new AppException(
-                    "Budget with this name already exists",
-                    HttpStatus.CONFLICT
-            );
+        Long userId = getUserId(token);
+
+        log.info("Creating budget for userId: {}", userId);
+
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+
+        Budget existing = budgetRepository
+                .findByUserIdAndName(userId, dto.getName())
+                .orElse(null);
+
+        if (existing != null && !existing.isDeleted()) {
+
+            log.warn("Budget creation failed - duplicate name - userId: {}, name: {}", userId, dto.getName());
+
+            throw new AppException("Budget with this name already exists", HttpStatus.CONFLICT);
         }
 
-        Budget budget = new Budget();
+        Budget budget = existing != null ? existing : new Budget();
 
         budget.setUser(user);
-        budget.setName(request.getName());
-        budget.setSpending(request.getSpending());
-        budget.setAmountLimit(request.getAmountLimit());
-        budget.setPeriodMonth(request.getPeriodMonth());
-
-        // New budgets are active by default
+        budget.setName(dto.getName());
+        budget.setAmountLimit(dto.getAmountLimit());
         budget.setDeleted(false);
 
-        Budget savedBudget = budgetRepository.save(budget);
+        // Spending is server-owned -- a new or revived budget starts empty.
+        budget.setSpending(BigDecimal.ZERO);
 
-        return convertToResponse(savedBudget);
+        budget.setPeriodMonth(dto.getPeriodMonth() != null
+                ? dto.getPeriodMonth()
+                : LocalDate.now().withDayOfMonth(1));
+
+        Budget saved = budgetRepository.save(budget);
+
+        log.info("Budget {} successfully - id: {}, userId: {}",
+                existing != null ? "revived" : "created", saved.getId(), userId);
+
+        return saved;
     }
 
-    // Get budget by ID
-    public BudgetResponseDTO getBudgetById(Long id) {
+    public Budget getBudgetById(Long id, String token) {
 
-        Budget budget = budgetRepository.findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException("Budget not found"));
+        Long userId = getUserId(token);
 
-        if (budget.isDeleted()) {
-            throw new RuntimeException("Budget not found");
-        }
+        log.info("Getting budget - id: {}, userId: {}", id, userId);
 
-        return convertToResponse(budget);
+        return ownedBudget(id, userId);
     }
 
-    // Get all budgets
-    public List<BudgetResponseDTO> getAllBudgets() {
+    public List<Budget> getBudgets(String token) {
 
-        List<Budget> budgets =
-                budgetRepository.findAllByDeletedFalse();
+        Long userId = getUserId(token);
 
-        return budgets.stream()
-                .map(this::convertToResponse)
-                .toList();
+        log.info("Getting budgets for userId: {}", userId);
+
+        return budgetRepository.findAllByUserIdAndDeletedFalseOrderByNameAsc(userId);
     }
 
-    // Update an existing budget
-    public BudgetResponseDTO updateBudget(
-            Long id,
-            BudgetRequestDTO request) {
+    @Transactional
+    public Budget updateBudget(Long id, UpdateBudgetDto dto, String token) {
 
-        Budget budget = budgetRepository.findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException("Budget not found"));
+        Long userId = getUserId(token);
 
-        if (budget.isDeleted()) {
-            throw new RuntimeException("Budget not found");
+        log.info("Updating budget - id: {}, userId: {}", id, userId);
+
+        Budget budget = ownedBudget(id, userId);
+
+        if (dto.getName() != null && !dto.getName().equals(budget.getName())) {
+
+            // A soft-deleted namesake still occupies uk_budget_user_name.
+            if (budgetRepository.existsByUserIdAndName(userId, dto.getName())) {
+
+                log.warn("Budget update failed - duplicate name - userId: {}, name: {}", userId, dto.getName());
+
+                throw new AppException("Budget with this name already exists", HttpStatus.CONFLICT);
+            }
+
+            budget.setName(dto.getName());
         }
 
-        // Renaming is allowed, but must not collide with another live budget.
-        if (!budget.getName().equals(request.getName())
-                && budgetRepository.existsByUserIdAndNameAndDeletedFalse(
-                        budget.getUser().getId(), request.getName())) {
-
-            throw new AppException(
-                    "Budget with this name already exists",
-                    HttpStatus.CONFLICT
-            );
+        if (dto.getAmountLimit() != null) {
+            budget.setAmountLimit(dto.getAmountLimit());
         }
 
-        budget.setName(request.getName());
-        budget.setSpending(request.getSpending());
-        budget.setAmountLimit(request.getAmountLimit());
-        budget.setPeriodMonth(request.getPeriodMonth());
+        if (dto.getPeriodMonth() != null) {
+            budget.setPeriodMonth(dto.getPeriodMonth());
+        }
 
-        Budget updatedBudget = budgetRepository.save(budget);
+        // Spending is never taken from the request -- see createBudget.
+        Budget updated = budgetRepository.save(budget);
 
-        return convertToResponse(updatedBudget);
+        log.info("Budget updated successfully - id: {}, userId: {}", id, userId);
+
+        return updated;
     }
 
-    // Soft delete the budget
-    public void deleteBudget(Long id) {
+    @Transactional
+    public Map<String, String> deleteBudget(Long id, String token) {
 
-        Budget budget = budgetRepository.findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException("Budget not found"));
+        Long userId = getUserId(token);
 
-        if (budget.isDeleted()) {
-            throw new RuntimeException("Budget already deleted");
-        }
+        log.info("Deleting budget - id: {}, userId: {}", id, userId);
 
+        Budget budget = ownedBudget(id, userId);
+
+        // Soft delete: transactions keep pointing at the row via budget_id.
         budget.setDeleted(true);
 
         budgetRepository.save(budget);
-    }
 
-    // Convert Budget entity to response DTO
-    private BudgetResponseDTO convertToResponse(Budget budget) {
+        log.info("Budget deleted successfully - id: {}, userId: {}", id, userId);
 
-        BudgetResponseDTO response = new BudgetResponseDTO();
-
-        response.setId(budget.getId());
-        response.setUserId(budget.getUser().getId());
-        response.setName(budget.getName());
-        response.setSpending(budget.getSpending());
-        response.setAmountLimit(budget.getAmountLimit());
-        response.setPeriodMonth(budget.getPeriodMonth());
-        response.setCreatedAt(budget.getCreatedAt());
-        response.setUpdatedAt(budget.getUpdatedAt());
-
-        return response;
+        return Map.of("message", "Budget deleted successfully");
     }
 }

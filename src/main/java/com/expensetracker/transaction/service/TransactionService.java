@@ -1,7 +1,6 @@
 package com.expensetracker.transaction.service;
 
 import com.expensetracker.auth.Authentication;
-import com.expensetracker.budget.dto.BudgetResponseDTO;
 import com.expensetracker.budget.entity.Budget;
 import com.expensetracker.common.exception.AppException;
 import com.expensetracker.transaction.dto.CreateTransactionDto;
@@ -33,7 +32,6 @@ import com.expensetracker.budget.repository.BudgetRepository;
 public class TransactionService {
 
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
-
 
     private final TransactionRepository transactionRepository;
     private final BudgetRepository budgetRepository;
