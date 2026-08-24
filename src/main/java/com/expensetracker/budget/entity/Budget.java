@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Entity
 @Table(
-        name = "budgets",
+        name = "budgetss",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_budget_user_name",
                 columnNames = {"user_id", "name"}
