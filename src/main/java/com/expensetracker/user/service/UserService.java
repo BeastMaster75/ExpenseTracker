@@ -26,6 +26,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.math.BigDecimal;
+import java.util.UUID;
+import com.expensetracker.common.email.ConfirmEmailTemplate;
+import java.util.Optional;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+
 
 @Service
 public class UserService {
@@ -47,6 +56,26 @@ public class UserService {
     private final ResendOtp resendOtp;
     private final ObjectMapper objectMapper;
     private final PasswordHistoryService passwordHistoryService;
+
+    private String generateEmailVerificationToken() {
+        return UUID.randomUUID().toString();
+    }
+    private String hashVerificationToken(String token) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+
+            byte[] hash =
+                    digest.digest(token.getBytes(StandardCharsets.UTF_8));
+
+            return HexFormat.of().formatHex(hash);
+
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(
+                    "SHA-256 algorithm not available",
+                    e
+            );
+        }
+    }
 
     public UserService(
             UserRepository userRepository,
@@ -75,18 +104,91 @@ public class UserService {
 
     public User createUser(CreateUserDto user) {
 
-        log.info("Creating new user with email: {}", user.getEmail());
+        log.info(
+                "Creating user with email: {}",
+                user.getEmail()
+        );
 
-        Optional<User> userExist = userRepository.findByEmail(user.getEmail());
+        Optional<User> userExist =
+                userRepository.findByEmail(user.getEmail());
 
         if (userExist.isPresent()) {
-            log.warn("User creation failed - email already exists: {}", user.getEmail());
 
-            throw new AppException(
-                    "User already exist",
-                    HttpStatus.CONFLICT
+            User existingUser = userExist.get();
+
+            // User is active
+            if (!existingUser.getIsDeleted()) {
+
+                throw new AppException(
+                        "User already exist",
+                        HttpStatus.CONFLICT
+                );
+            }
+
+            // =========================
+            // Restore soft-deleted user
+            // =========================
+
+            existingUser.setUsername(user.getUsername());
+
+            existingUser.setPassword(
+                    hashSecurity.hash(user.getPassword())
             );
+
+            existingUser.setIsDeleted(false);
+            existingUser.setIsConfirmed(false);
+
+            existingUser.setChangeCredential(null);
+
+            existingUser.setBalance(BigDecimal.ZERO);
+            existingUser.setTotalIncome(BigDecimal.ZERO);
+            existingUser.setTotalExpense(BigDecimal.ZERO);
+
+            String verificationToken =
+                    generateEmailVerificationToken();
+
+            existingUser.setEmailVerificationTokenHash(
+                    hashVerificationToken(verificationToken)
+            );
+
+            existingUser.setEmailVerificationTokenExpiresAt(
+                    new Date(
+                            System.currentTimeMillis()
+                                    + 15 * 60 * 1000
+                    )
+            );
+
+            User restoredUser =
+                    userRepository.save(existingUser);
+
+            // =========================
+            // Send verification email
+            // =========================
+
+            String verificationLink =
+                    "http://localhost:8081/users/confirmEmail?token="
+                            + verificationToken;
+
+            sendEmail.sendEmail(
+                    restoredUser.getEmail(),
+                    "Confirm your email",
+                    ConfirmEmailTemplate.confirmEmail(
+                            restoredUser.getUsername(),
+                            verificationLink
+                    )
+            );
+
+            log.info(
+                    "Soft-deleted user restored - userId: {}",
+                    restoredUser.getId()
+            );
+
+            return restoredUser;
         }
+
+        // =========================
+        // Create completely new user
+        // =========================
 
         User newUser = new User();
 
@@ -97,25 +199,46 @@ public class UserService {
                 hashSecurity.hash(user.getPassword())
         );
 
-        int otp = sendEmail.generateOTP();
+        newUser.setIsDeleted(false);
+        newUser.setIsConfirmed(false);
 
-        sendEmail.sendEmail(
-                newUser.getEmail(),
-                "email confirmation",
-                EmailTemplate.otpEmail(
-                        newUser.getUsername(),
-                        otp,
-                        "Confirmation Otp"
+        newUser.setBalance(BigDecimal.ZERO);
+        newUser.setTotalIncome(BigDecimal.ZERO);
+        newUser.setTotalExpense(BigDecimal.ZERO);
+
+        String verificationToken =
+                generateEmailVerificationToken();
+
+        newUser.setEmailVerificationTokenHash(
+                hashVerificationToken(verificationToken)
+        );
+
+        newUser.setEmailVerificationTokenExpiresAt(
+                new Date(
+                        System.currentTimeMillis()
+                                + 15 * 60 * 1000
                 )
         );
 
-        redisService.setValue(
-                redisService.otpKey(newUser.getEmail(), CONFIRM_EMAIL_TYPE),
-                hashSecurity.hash(String.valueOf(otp)),
-                60 * 5
-        );
+        User savedUser =
+                userRepository.save(newUser);
 
-        User savedUser = userRepository.save(newUser);
+        // =========================
+        // Send verification email
+        // =========================
+
+        String verificationLink =
+                "http://localhost:8081/users/confirmEmail?token="
+                        + verificationToken;
+
+        sendEmail.sendEmail(
+                savedUser.getEmail(),
+                "Confirm your email",
+                ConfirmEmailTemplate.confirmEmail(
+                        savedUser.getUsername(),
+                        verificationLink
+                )
+        );
 
         log.info(
                 "User created successfully - id: {}, email: {}",
@@ -126,113 +249,145 @@ public class UserService {
         return savedUser;
     }
 
-    public Map<String, String> confirmEmail(ConfirmEmailDto dto) {
+    public Map<String, String> confirmEmail(String token) {
 
-        log.info("Email confirmation started - email: {}", dto.getEmail());
+        if (token == null || token.isBlank()) {
 
-        Optional<User> userExist = userRepository.findByEmail(dto.getEmail());
+            throw new AppException(
+                    "Verification token is required",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        String tokenHash =
+                hashVerificationToken(token);
+
+        Optional<User> userExist =
+                userRepository.findByEmailVerificationTokenHash(
+                        tokenHash
+                );
 
         if (userExist.isEmpty()) {
-            log.warn("Email confirmation failed - user not found: {}", dto.getEmail());
+
+            throw new AppException(
+                    "Invalid verification token",
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        User user =
+                userExist.get();
+
+        if (user.getEmailVerificationTokenExpiresAt() == null
+                || user.getEmailVerificationTokenExpiresAt()
+                .before(new Date())) {
+
+            throw new AppException(
+                    "Verification token expired",
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        if (user.getIsDeleted()) {
 
             throw new AppException(
                     "User not found",
                     HttpStatus.NOT_FOUND
-            );
-        }
-
-        User user = userExist.get();
-
-        if (user.getIsConfirmed()) {
-            log.warn("Email confirmation failed - already confirmed - userId: {}", user.getId());
-
-            throw new AppException(
-                    "User already confirmed",
-                    HttpStatus.BAD_REQUEST
-            );
-        }
-
-        String otpExist = redisService.get(
-                redisService.otpKey(dto.getEmail(), CONFIRM_EMAIL_TYPE)
-        );
-
-        if (otpExist == null || otpExist.isEmpty()) {
-            log.warn("Email confirmation failed - OTP expired - userId: {}", user.getId());
-
-            throw new AppException(
-                    "OTP expired or incorrect",
-                    HttpStatus.BAD_REQUEST
-            );
-        }
-
-        if (!hashSecurity.compare(dto.getOtp(), otpExist)) {
-            log.warn("Email confirmation failed - invalid OTP - userId: {}", user.getId());
-
-            throw new AppException(
-                    "Invalid OTP",
-                    HttpStatus.UNAUTHORIZED
             );
         }
 
         user.setIsConfirmed(true);
 
+        // Token is one-time use
+        user.setEmailVerificationTokenHash(null);
+        user.setEmailVerificationTokenExpiresAt(null);
+
         userRepository.save(user);
 
-        redisService.delete(
-                redisService.otpKey(dto.getEmail(), CONFIRM_EMAIL_TYPE)
+        log.info(
+                "Email confirmed successfully - userId: {}",
+                user.getId()
         );
 
-        log.info("Email confirmed successfully - userId: {}", user.getId());
-
         return Map.of(
-                "message", "confirmed done successfully "
+                "message",
+                "Email confirmed successfully"
         );
     }
 
-    public Map<String, String> resendConfirmOtp(ResendOtpDto dto, String token) {
+    public Map<String, String> resendConfirmationLink(
+            String authorization
+    ) {
 
-        Claims claims = authentication.auth(token, false);
+        Claims claims =
+                authentication.auth(
+                        authorization,
+                        false
+                );
 
-        Long id = claims.get("id", Long.class);
+        Long id =
+                claims.get("id", Long.class);
 
-        log.info("Resend confirmation OTP started - userId: {}", id);
+        log.info(
+                "Resend confirmation link started - userId: {}",
+                id
+        );
 
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
-
-        if (userExist.isEmpty()) {
-            log.warn("Resend confirmation OTP failed - user not found: {}", id);
-
-            throw new AppException(
-                    "User not found",
-                    HttpStatus.NOT_FOUND
-            );
-        }
-
-        User user = userExist.get();
+        User user =
+                userRepository
+                        .findByIdAndIsDeletedFalse(id)
+                        .orElseThrow(() ->
+                                new AppException(
+                                        "User not found",
+                                        HttpStatus.NOT_FOUND
+                                )
+                        );
 
         if (user.getIsConfirmed()) {
-            log.warn(
-                    "Resend confirmation OTP failed - user already confirmed - userId: {}",
-                    id
-            );
 
             throw new AppException(
-                    "User already confirmed",
+                    "Email already confirmed",
                     HttpStatus.BAD_REQUEST
             );
         }
 
-        resendOtp.sendOtp(
-                dto.getEmail(),
-                user.getUsername(),
-                "Confirmation Otp ",
-                CONFIRM_EMAIL_TYPE
+        String verificationToken =
+                generateEmailVerificationToken();
+
+        user.setEmailVerificationTokenHash(
+                hashVerificationToken(verificationToken)
         );
 
-        log.info("Confirmation OTP resent successfully - userId: {}", id);
+        user.setEmailVerificationTokenExpiresAt(
+                new Date(
+                        System.currentTimeMillis()
+                                + 15 * 60 * 1000
+                )
+        );
+
+        userRepository.save(user);
+
+        String verificationLink =
+                "http://localhost:8081/users/confirmEmail?token="
+                        + verificationToken;
+
+        sendEmail.sendEmail(
+                user.getEmail(),
+                "Confirm Your Email",
+                ConfirmEmailTemplate.confirmEmail(
+                        user.getUsername(),
+                        verificationLink
+                )
+        );
+
+        log.info(
+                "Confirmation link resent successfully - userId: {}",
+                id
+        );
 
         return Map.of(
-                "message", "confirmed otp resent successfully "
+                "message",
+                "Confirmation link sent successfully"
         );
     }
 
@@ -422,18 +577,15 @@ public class UserService {
         );
     }
 
-    public Map<String, String> forgetPassword(ForgetPasswordDto dto, String token) {
+    public Map<String, String> forgetPassword(ForgetPasswordDto dto) {
 
-        Claims claims = authentication.auth(token, false);
+        log.info("Forget password started - email: {}", dto.getEmail());
 
-        Long id = claims.get("id", Long.class);
-
-        log.info("Forget password started - userId: {}", id);
-
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
+        Optional<User> userExist =
+                userRepository.findByEmailAndIsDeletedFalse(dto.getEmail());
 
         if (userExist.isEmpty()) {
-            log.warn("Forget password failed - user not found: {}", id);
+            log.warn("Forget password failed - user not found: {}", dto.getEmail());
 
             throw new AppException(
                     "User not found",
@@ -444,11 +596,17 @@ public class UserService {
         User existingUser = userExist.get();
 
         String otpExist = redisService.get(
-                redisService.otpKey(existingUser.getEmail(), FORGET_PASSWORD_TYPE)
+                redisService.otpKey(
+                        existingUser.getEmail(),
+                        FORGET_PASSWORD_TYPE
+                )
         );
 
         if (otpExist == null || otpExist.isEmpty()) {
-            log.warn("Forget password failed - OTP expired - userId: {}", id);
+            log.warn(
+                    "Forget password failed - OTP expired - email: {}",
+                    existingUser.getEmail()
+            );
 
             throw new AppException(
                     "OTP expired or incorrect",
@@ -457,7 +615,10 @@ public class UserService {
         }
 
         if (!hashSecurity.compare(dto.getOtp(), otpExist)) {
-            log.warn("Forget password failed - invalid OTP - userId: {}", id);
+            log.warn(
+                    "Forget password failed - invalid OTP - email: {}",
+                    existingUser.getEmail()
+            );
 
             throw new AppException(
                     "Invalid OTP",
@@ -465,9 +626,15 @@ public class UserService {
             );
         }
 
-        passwordHistoryService.assertNotReused(existingUser, dto.getNewPassword());
+        passwordHistoryService.assertNotReused(
+                existingUser,
+                dto.getNewPassword()
+        );
 
-        passwordHistoryService.record(existingUser, existingUser.getPassword());
+        passwordHistoryService.record(
+                existingUser,
+                existingUser.getPassword()
+        );
 
         existingUser.setPassword(
                 hashSecurity.hash(dto.getNewPassword())
@@ -478,30 +645,40 @@ public class UserService {
         redisService.delete(ALL_USERS_KEY);
 
         redisService.delete(
-                redisService.otpKey(existingUser.getEmail(), FORGET_PASSWORD_TYPE)
+                redisService.otpKey(
+                        existingUser.getEmail(),
+                        FORGET_PASSWORD_TYPE
+                )
         );
 
         userRepository.save(existingUser);
 
-        log.info("Password reset successfully - userId: {}", id);
+        log.info(
+                "Password reset successfully - userId: {}",
+                existingUser.getId()
+        );
 
         return Map.of(
-                "message", "Password Changed successfully "
+                "message",
+                "Password changed successfully"
         );
     }
 
-    public Map<String, String> resendForgetPasswordOtp(ResendOtpDto dto, String token) {
+    public Map<String, String> resendForgetPasswordOtp(ResendOtpDto dto) {
 
-        Claims claims = authentication.auth(token, false);
+        log.info(
+                "Resend forget password OTP started - email: {}",
+                dto.getEmail()
+        );
 
-        Long id = claims.get("id", Long.class);
-
-        log.info("Resend forget password OTP started - userId: {}", id);
-
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
+        Optional<User> userExist =
+                userRepository.findByEmailAndIsDeletedFalse(dto.getEmail());
 
         if (userExist.isEmpty()) {
-            log.warn("Resend forget password OTP failed - user not found: {}", id);
+            log.warn(
+                    "Resend forget password OTP failed - user not found: {}",
+                    dto.getEmail()
+            );
 
             throw new AppException(
                     "User not found",
@@ -512,16 +689,20 @@ public class UserService {
         User user = userExist.get();
 
         resendOtp.sendOtp(
-                dto.getEmail(),
+                user.getEmail(),
                 user.getUsername(),
                 "Forget Password Reset",
                 FORGET_PASSWORD_TYPE
         );
 
-        log.info("Forget password OTP resent successfully - userId: {}", id);
+        log.info(
+                "Forget password OTP resent successfully - userId: {}",
+                user.getId()
+        );
 
         return Map.of(
-                "message", "reset forget password otp resent successfully "
+                "message",
+                "Reset forget password OTP resent successfully"
         );
     }
 
@@ -693,6 +874,30 @@ public class UserService {
 
         return Map.of(
                 "message", "Logout done"
+        );
+    }
+
+    public BalanceDto getBalanceAndIncomeAndExpense(String token) {
+
+        Claims claims = authentication.auth(token, false);
+        Long userId = claims.get("id", Long.class);
+
+        Optional<User> userExist =
+                userRepository.findByIdAndIsDeletedFalse(userId);
+
+        if (userExist.isEmpty()) {
+            throw new AppException(
+                    "User not exist",
+                    HttpStatus.NOT_FOUND
+            );
+        }
+
+        User user = userExist.get();
+
+        return new BalanceDto(
+                user.getBalance(),
+                user.getTotalIncome(),
+                user.getTotalExpense()
         );
     }
 }

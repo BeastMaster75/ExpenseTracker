@@ -10,13 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * Blocks reuse of a user's recent passwords.
- *
- * History is kept as a delimited string on the users row rather than in its own
- * table, so this service only mutates the User object -- persisting it stays the
- * caller's job.
- */
+
 @Service
 public class PasswordHistoryService {
 

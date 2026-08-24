@@ -8,4 +8,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
     Optional<User> findByIdAndIsDeletedFalse(Long id);
     Optional<User> findByEmailAndIsDeletedFalse(String email);
+    Optional<User> findByEmailVerificationTokenHash(
+            String tokenHash
+    );
 }

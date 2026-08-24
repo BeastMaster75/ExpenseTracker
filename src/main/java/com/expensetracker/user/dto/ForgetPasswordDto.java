@@ -15,4 +15,6 @@ public class ForgetPasswordDto {
 
     @NotBlank(message = "otp is required")
     private String otp;
+
+    private String email;
 }

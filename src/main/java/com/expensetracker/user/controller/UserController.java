@@ -45,17 +45,28 @@ public class UserController {
         return userService.createUser(user);
     }
 
-    @PostMapping("/confirmEmail")
-    public Map<String, String> confirmEmail(@Valid @RequestBody ConfirmEmailDto dto) {
-        return userService.confirmEmail(dto);
+//    @PostMapping("/confirmEmail")
+//    public Map<String, String> confirmEmail(@Valid @RequestBody ConfirmEmailDto dto) {
+//        return userService.confirmEmail(dto);
+//    }
+
+    @GetMapping("/confirmEmail")
+    public Map<String, String> confirmEmail(
+            @RequestParam String token
+    ) {
+        return userService.confirmEmail(token);
     }
 
-    @PostMapping("/resendConfirmOtp")
-    public Map<String, String> resendConfirmOtp(
-            @Valid @RequestBody ResendOtpDto dto,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+    @PostMapping("/resendConfirmationLink")
+    public Map<String, String> resendConfirmationLink(
+            @RequestHeader(
+                    value = "Authorization",
+                    required = false
+            ) String authorization
     ) {
-        return userService.resendConfirmOtp(dto, bearerToken(authorization));
+        return userService.resendConfirmationLink(
+                authorization
+        );
     }
 
     @PostMapping("/login")
@@ -102,19 +113,18 @@ public class UserController {
 
     @PatchMapping("/resetPassword")
     public Map<String, String> forgetPassword(
-            @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody ForgetPasswordDto dto
     ) {
-        return userService.forgetPassword(dto, bearerToken(authorization));
+        return userService.forgetPassword(dto);
     }
-
-    @PostMapping("/resendForgetPasswordOtp")
-    public Map<String, String> resendForgetPasswordOtp(
-            @Valid @RequestBody ResendOtpDto dto,
-            @RequestHeader(value = "Authorization", required = false) String authorization
-    ) {
-        return userService.resendForgetPasswordOtp(dto, bearerToken(authorization));
-    }
+//    @PostMapping("/resendConfirmationLink")
+//    public Map<String, String> resendConfirmationLink(
+//            @RequestHeader("Authorization") String authorization
+//    ) {
+//        return userService.resendConfirmationLink(
+//                authorization.replace("Bearer ", "")
+//        );
+//    }
 
     @DeleteMapping("/softDelete")
     public Map<String, String> softDeleteUser(
@@ -140,4 +150,16 @@ public class UserController {
     public User getUserById(@PathVariable long id) {
         return userService.getUserById(id);
     }
+
+
+    @GetMapping("/balance")
+    public BalanceDto getBalanceAndIncomeAndExpense(
+            @RequestHeader("Authorization") String authorization
+    ) {
+        return userService.getBalanceAndIncomeAndExpense(authorization);
+    }
 }
+
+
+
+

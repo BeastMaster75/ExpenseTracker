@@ -15,8 +15,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-
+import java.util.UUID;
+import com.expensetracker.common.email.ConfirmEmailTemplate;
+import java.util.Optional;
 import java.util.Date;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort;
 
 @Service
 public class TransactionService {
@@ -35,25 +42,73 @@ public class TransactionService {
         this.userRepository = userRepository;
     }
 
-    public Transaction createTransaction(CreateTransactionDto createTransactionDto , String token) {
+    public Transaction createTransaction(CreateTransactionDto createTransactionDto, String token) {
         Claims claims = authentication.auth(token, false);
         Long userId = claims.get("id", Long.class);
 
         log.info("Creating transaction for userId: {}", userId);
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(userId);
+
+        if (userExist.isEmpty()) {
+            throw new AppException(
+                    "User not exist",
+                    HttpStatus.NOT_FOUND
+            );
+        }
+
+//        Optional<Budget> budgetExist =
+//                budgetRepository.findById(Long.valueOf(transaction.getBudgetId()));
+//
+//        if (budgetExist.isEmpty()) {
+//            throw new AppException(
+//                    "Budget not exist",
+//                    HttpStatus.NOT_FOUND
+//            );
+//        }
 
         Transaction tx = new Transaction();
-        tx.setUser(user);
+
+        tx.setUser(userExist.get());
+
         tx.setAmount(createTransactionDto.getAmount());
+
         tx.setType(createTransactionDto.getTransactionType() != null ? createTransactionDto.getTransactionType() : "income");
+
         tx.setDescription(createTransactionDto.getDescription() != null ? createTransactionDto.getDescription() : "");
+
         tx.setCreatedAt(new Date());
         tx.setUpdatedAt(new Date());
 
-        return transactionRepository.save(tx);
+        User user = userExist.get();
 
+//        Budget budget = budgetExist.get();
+
+        if ("income".equalsIgnoreCase(tx.getType())) {
+
+            user.setBalance(user.getBalance().add(tx.getAmount()));
+
+            user.setTotalIncome(user.getTotalIncome().add(tx.getAmount()));
+
+        } else if ("expense".equalsIgnoreCase(tx.getType())) {
+
+            user.setBalance(user.getBalance().subtract(tx.getAmount()));
+
+            user.setTotalExpense(user.getTotalExpense().add(tx.getAmount()));
+
+//            budget.setSpending(budget.getSpending().add(tx.getAmount()));
+
+        } else {
+
+            throw new AppException(
+                    "Invalid transaction type",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        userRepository.save(user);
+
+        return transactionRepository.save(tx);
     }
 
     public Transaction updateTransaction(Long id, UpdateTransactionDto updateTransaction, String token) {
@@ -83,7 +138,8 @@ public class TransactionService {
         }
 
         tx.setUpdatedAt(new Date());
-        return transactionRepository.save(tx);    }
+        return transactionRepository.save(tx);
+    }
 
     public Transaction getTransactionById(Long id, String token) {
         Claims claims = authentication.auth(token, false);
@@ -110,5 +166,42 @@ public class TransactionService {
         }
 
         transactionRepository.delete(tx);
+    }
+
+    public Page<Transaction> getTransactions(
+            Long userId,
+            String range,
+            int page,
+            int size
+    ) {
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        Date now = new Date();
+
+        Date from = null;
+
+        if (range.equalsIgnoreCase("last_day")) {
+            from = new Date(now.getTime() - (24L * 60 * 60 * 1000));
+        } else if (range.equalsIgnoreCase("last_week")) {
+            from = new Date(now.getTime() - (7L * 24 * 60 * 60 * 1000));
+        } else if (range.equalsIgnoreCase("last_month")) {
+            from = new Date(now.getTime() - (30L * 24 * 60 * 60 * 1000));
+        }
+
+        if (from == null) {
+            return transactionRepository.findByUserId(userId, pageable);
+        }
+
+        return transactionRepository
+                .findByUserIdAndCreatedAtBetween(
+                        userId,
+                        from,
+                        now,
+                        pageable
+                );
     }
 }

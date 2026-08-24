@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
 import java.math.BigDecimal;
 import java.util.Date;
 
@@ -27,13 +28,10 @@ public class User {
     @Column(nullable = false, unique = true)
     private String email;
 
+    @JsonIgnore
     @Column(nullable = false)
     private String password;
 
-    // The last 5 BCrypt hashes this account has used, newest first, comma
-    // separated. A hash is "$2a$<cost>$<53 chars of [./A-Za-z0-9]>", so a comma
-    // can never occur inside one and is safe as a separator.
-    // 5 x 60 chars + 4 separators = 304, so 512 leaves headroom.
     @JsonIgnore
     @Column(length = 512)
     private String passwordHistory;
@@ -52,4 +50,13 @@ public class User {
 
     @Column()
     private Boolean isConfirmed = false;
+
+    @JsonIgnore
+    @Column(length = 512)
+    private String emailVerificationTokenHash;
+
+    @JsonIgnore
+    @Column()
+    @Temporal(TemporalType.TIMESTAMP)
+    private Date emailVerificationTokenExpiresAt;
 }
