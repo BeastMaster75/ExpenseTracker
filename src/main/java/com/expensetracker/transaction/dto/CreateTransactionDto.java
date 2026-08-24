@@ -16,13 +16,14 @@ public class CreateTransactionDto{
     @Positive(message = "Amount must be greater than zero")
     private BigDecimal amount;
 
-//    NOT YET COMPLETED
-//    @NotBlank(message = "Budget must be selected")
-//    private String budgetName;
+    // Required for expenses only -- income is not tied to a budget, so the
+    // check lives in the service where the type is known.
+    private String budgetName;
 
     private String transactionType;
 
     private Date createdAt;
 
     private String description;
+
 }

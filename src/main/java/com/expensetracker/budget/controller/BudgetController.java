@@ -24,10 +24,6 @@ public class BudgetController {
         this.budgetService = budgetService;
     }
 
-
-    // =========================================================
-    // 1) CREATE BUDGET
-
     @PostMapping
     public ResponseEntity<BudgetResponseDTO> createBudget(
             @Valid @RequestBody BudgetRequestDTO request) {
@@ -40,10 +36,6 @@ public class BudgetController {
         return ResponseEntity.ok(response);
     }
 
-
-    // =========================================================
-    // 2) GET BUDGET BY ID
-
     @GetMapping("/{id}")
     public ResponseEntity<BudgetResponseDTO> getBudgetById(
             @PathVariable Long id) {
@@ -55,10 +47,6 @@ public class BudgetController {
         return ResponseEntity.ok(response);
     }
 
-
-    // =========================================================
-    // 3) GET ALL BUDGETS
-
     @GetMapping
     public ResponseEntity<List<BudgetResponseDTO>> getAllBudgets() {
 
@@ -68,9 +56,6 @@ public class BudgetController {
         return ResponseEntity.ok(response);
     }
 
-
-    // =========================================================
-    // 4) UPDATE BUDGET
     @PutMapping("/{id}")
     public ResponseEntity<BudgetResponseDTO> updateBudget(
             @PathVariable Long id,
@@ -82,10 +67,6 @@ public class BudgetController {
 
         return ResponseEntity.ok(response);
     }
-
-
-    // =========================================================
-    // 5) DELETE BUDGET
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteBudget(

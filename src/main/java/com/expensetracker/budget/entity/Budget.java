@@ -7,7 +7,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "budgets")
+@Table(
+        name = "budgets",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_budget_user_name",
+                columnNames = {"user_id", "name"}
+        )
+)
 public class Budget {
 
     @Id
@@ -19,9 +25,10 @@ public class Budget {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // =========================================================
-    // BUDGET DATA
-    // =========================================================
+    // Transactions reference their budget by this name, so it must be unique
+    // per user -- see the uk_budget_user_name constraint above.
+    @Column(nullable = false)
+    private String name;
 
     @Column(nullable = false)
     private BigDecimal spending;
@@ -32,30 +39,17 @@ public class Budget {
     @Column(name = "period_month", nullable = false)
     private LocalDate periodMonth;
 
-    // =========================================================
-    // AUDIT FIELDS
-    // =========================================================
-
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    // =========================================================
-    // SOFT DELETE
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
 
-    // =========================================================
-    // DEFAULT CONSTRUCTOR
-    // =========================================================
-
     public Budget() {
     }
-
-    // =========================================================
-    // CREATE TIMESTAMP
 
     @PrePersist
     protected void onCreate() {
@@ -69,15 +63,11 @@ public class Budget {
         deleted = false;
     }
 
-    // =========================================================
-    // UPDATE TIMESTAMP
-
     @PreUpdate
     protected void onUpdate() {
 
         updatedAt = LocalDateTime.now();
     }
-
 
     public Long getId() {
         return id;
@@ -93,6 +83,14 @@ public class Budget {
 
     public void setUser(User user) {
         this.user = user;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public BigDecimal getSpending() {

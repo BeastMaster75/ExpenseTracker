@@ -1,6 +1,8 @@
 package com.expensetracker.transaction.service;
 
 import com.expensetracker.auth.Authentication;
+import com.expensetracker.budget.dto.BudgetResponseDTO;
+import com.expensetracker.budget.entity.Budget;
 import com.expensetracker.common.exception.AppException;
 import com.expensetracker.transaction.dto.CreateTransactionDto;
 import com.expensetracker.transaction.dto.UpdateTransactionDto;
@@ -15,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 import com.expensetracker.common.email.ConfirmEmailTemplate;
 import java.util.Optional;
@@ -24,6 +27,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort;
+import com.expensetracker.budget.repository.BudgetRepository;
 
 @Service
 public class TransactionService {
@@ -32,44 +36,33 @@ public class TransactionService {
 
 
     private final TransactionRepository transactionRepository;
+    private final BudgetRepository budgetRepository;
     private final Authentication authentication;
     private final UserRepository userRepository;
 
-
-    public TransactionService(TransactionRepository transactionRepository, Authentication authentication, UserRepository userRepository) {
+    public TransactionService(TransactionRepository transactionRepository, BudgetRepository budgetRepository, Authentication authentication, UserRepository userRepository) {
         this.transactionRepository = transactionRepository;
+        this.budgetRepository = budgetRepository;
         this.authentication = authentication;
         this.userRepository = userRepository;
     }
 
+    @Transactional
     public Transaction createTransaction(CreateTransactionDto createTransactionDto, String token) {
         Claims claims = authentication.auth(token, false);
         Long userId = claims.get("id", Long.class);
 
         log.info("Creating transaction for userId: {}", userId);
 
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(userId);
-
-        if (userExist.isEmpty()) {
-            throw new AppException(
-                    "User not exist",
-                    HttpStatus.NOT_FOUND
-            );
-        }
-
-//        Optional<Budget> budgetExist =
-//                budgetRepository.findById(Long.valueOf(transaction.getBudgetId()));
-//
-//        if (budgetExist.isEmpty()) {
-//            throw new AppException(
-//                    "Budget not exist",
-//                    HttpStatus.NOT_FOUND
-//            );
-//        }
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new AppException(
+                        "User not exist",
+                        HttpStatus.NOT_FOUND
+                ));
 
         Transaction tx = new Transaction();
 
-        tx.setUser(userExist.get());
+        tx.setUser(user);
 
         tx.setAmount(createTransactionDto.getAmount());
 
@@ -80,10 +73,6 @@ public class TransactionService {
         tx.setCreatedAt(new Date());
         tx.setUpdatedAt(new Date());
 
-        User user = userExist.get();
-
-//        Budget budget = budgetExist.get();
-
         if ("income".equalsIgnoreCase(tx.getType())) {
 
             user.setBalance(user.getBalance().add(tx.getAmount()));
@@ -92,11 +81,32 @@ public class TransactionService {
 
         } else if ("expense".equalsIgnoreCase(tx.getType())) {
 
+            String budgetName = createTransactionDto.getBudgetName();
+
+            if (budgetName == null || budgetName.isBlank()) {
+                throw new AppException(
+                        "Budget must be selected for an expense",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+
+            // Scoped to the caller so one user cannot spend against another's budget.
+            Budget budget = budgetRepository
+                    .findByUserIdAndNameAndDeletedFalse(userId, budgetName)
+                    .orElseThrow(() -> new AppException(
+                            "Budget not exist",
+                            HttpStatus.NOT_FOUND
+                    ));
+
             user.setBalance(user.getBalance().subtract(tx.getAmount()));
 
             user.setTotalExpense(user.getTotalExpense().add(tx.getAmount()));
 
-//            budget.setSpending(budget.getSpending().add(tx.getAmount()));
+            budget.setSpending(budget.getSpending().add(tx.getAmount()));
+
+            budgetRepository.save(budget);
+
+            tx.setBudget(budget);
 
         } else {
 

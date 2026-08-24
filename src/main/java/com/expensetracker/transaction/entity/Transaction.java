@@ -1,9 +1,7 @@
 package com.expensetracker.transaction.entity;
 
 import com.expensetracker.user.entity.User;
-import com.expensetracker.user.repository.UserRepository;
-//import com.expensetracker.budget.entity.Budget;
-//import com.expensetracker.budget.repository.BudgetRepository;
+import com.expensetracker.budget.entity.Budget;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -28,9 +26,10 @@ public class Transaction {
     @JoinColumn(name = "user_id")
     private User user;
 
-//    @ManyToOne
-//    @JoinColumn(name = "budget_id")
-//    private Budget budget;
+    // Only expenses are tied to a budget; income transactions leave this null.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "budget_id")
+    private Budget budget;
 
     private String type;
 

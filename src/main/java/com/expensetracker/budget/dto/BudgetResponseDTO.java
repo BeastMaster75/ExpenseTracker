@@ -8,6 +8,7 @@ public class BudgetResponseDTO {
 
     private Long id;
     private Long userId;
+    private String name;
     private BigDecimal spending;
     private BigDecimal amountLimit;
     private LocalDate periodMonth;
@@ -31,6 +32,14 @@ public class BudgetResponseDTO {
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public BigDecimal getSpending() {

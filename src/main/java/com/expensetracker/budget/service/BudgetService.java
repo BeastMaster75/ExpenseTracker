@@ -2,6 +2,8 @@ package com.expensetracker.budget.service;
 
 import com.expensetracker.budget.dto.BudgetRequestDTO;
 import com.expensetracker.budget.dto.BudgetResponseDTO;
+import com.expensetracker.common.exception.AppException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import com.expensetracker.budget.repository.BudgetRepository;
 import com.expensetracker.user.repository.UserRepository;
@@ -23,16 +25,26 @@ public class BudgetService {
         this.userRepository = userRepository;
     }
 
-    // Create a new budget
     public BudgetResponseDTO createBudget(BudgetRequestDTO request) {
 
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() ->
                         new RuntimeException("User not found"));
 
+        // Transactions look budgets up by name, so a user cannot have two.
+        if (budgetRepository.existsByUserIdAndNameAndDeletedFalse(
+                user.getId(), request.getName())) {
+
+            throw new AppException(
+                    "Budget with this name already exists",
+                    HttpStatus.CONFLICT
+            );
+        }
+
         Budget budget = new Budget();
 
         budget.setUser(user);
+        budget.setName(request.getName());
         budget.setSpending(request.getSpending());
         budget.setAmountLimit(request.getAmountLimit());
         budget.setPeriodMonth(request.getPeriodMonth());
@@ -83,6 +95,18 @@ public class BudgetService {
             throw new RuntimeException("Budget not found");
         }
 
+        // Renaming is allowed, but must not collide with another live budget.
+        if (!budget.getName().equals(request.getName())
+                && budgetRepository.existsByUserIdAndNameAndDeletedFalse(
+                        budget.getUser().getId(), request.getName())) {
+
+            throw new AppException(
+                    "Budget with this name already exists",
+                    HttpStatus.CONFLICT
+            );
+        }
+
+        budget.setName(request.getName());
         budget.setSpending(request.getSpending());
         budget.setAmountLimit(request.getAmountLimit());
         budget.setPeriodMonth(request.getPeriodMonth());
@@ -115,6 +139,7 @@ public class BudgetService {
 
         response.setId(budget.getId());
         response.setUserId(budget.getUser().getId());
+        response.setName(budget.getName());
         response.setSpending(budget.getSpending());
         response.setAmountLimit(budget.getAmountLimit());
         response.setPeriodMonth(budget.getPeriodMonth());
