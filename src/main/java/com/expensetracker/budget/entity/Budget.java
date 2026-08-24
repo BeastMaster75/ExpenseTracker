@@ -1,11 +1,20 @@
 package com.expensetracker.budget.entity;
 
-import jakarta.persistence.*;
 import com.expensetracker.user.entity.User;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "budgets")
 public class Budget {
@@ -14,27 +23,21 @@ public class Budget {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    // =========================================================
-    // BUDGET DATA
-    // =========================================================
+    @Column
+    private BigDecimal spending = BigDecimal.ZERO;
 
-    @Column(nullable = false)
-    private BigDecimal spending;
+    @Column
+    private String budgetName;
 
     @Column(name = "amount_limit", nullable = false)
     private BigDecimal amountLimit;
 
-    @Column(name = "period_month", nullable = false)
+    @Column(name = "period_month")
     private LocalDate periodMonth;
-
-    // =========================================================
-    // AUDIT FIELDS
-    // =========================================================
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -42,104 +45,20 @@ public class Budget {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    // =========================================================
-    // SOFT DELETE
-    @Column(name = "is_deleted", nullable = false)
+    @Column(name = "is_deleted")
     private boolean deleted = false;
-
-    // =========================================================
-    // DEFAULT CONSTRUCTOR
-    // =========================================================
-
-    public Budget() {
-    }
-
-    // =========================================================
-    // CREATE TIMESTAMP
 
     @PrePersist
     protected void onCreate() {
-
         LocalDateTime now = LocalDateTime.now();
 
         createdAt = now;
         updatedAt = now;
-
-        // New Budget is active by default.
         deleted = false;
     }
 
-    // =========================================================
-    // UPDATE TIMESTAMP
-
     @PreUpdate
     protected void onUpdate() {
-
         updatedAt = LocalDateTime.now();
-    }
-
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public User getUser() {
-        return user;
-    }
-
-    public void setUser(User user) {
-        this.user = user;
-    }
-
-    public BigDecimal getSpending() {
-        return spending;
-    }
-
-    public void setSpending(BigDecimal spending) {
-        this.spending = spending;
-    }
-
-    public BigDecimal getAmountLimit() {
-        return amountLimit;
-    }
-
-    public void setAmountLimit(BigDecimal amountLimit) {
-        this.amountLimit = amountLimit;
-    }
-
-    public LocalDate getPeriodMonth() {
-        return periodMonth;
-    }
-
-    public void setPeriodMonth(LocalDate periodMonth) {
-        this.periodMonth = periodMonth;
-    }
-
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public LocalDateTime getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(LocalDateTime updatedAt) {
-        this.updatedAt = updatedAt;
-    }
-
-    public boolean isDeleted() {
-        return deleted;
-    }
-
-    public void setDeleted(boolean deleted) {
-        this.deleted = deleted;
     }
 }

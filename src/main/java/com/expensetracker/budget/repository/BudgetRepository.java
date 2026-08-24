@@ -4,9 +4,14 @@ import com.expensetracker.budget.entity.Budget;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface BudgetRepository extends JpaRepository<Budget, Long> {
 
-    // Get only budgets that are not soft deleted
-    List<Budget> findAllByDeletedFalse();
+    List<Budget> findAllByUserIdAndDeletedFalse(Long userId);
+
+    Optional<Budget> findByIdAndUserIdAndDeletedFalse(
+            Long id,
+            Long userId
+    );
 }
