@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,8 +21,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -78,6 +84,27 @@ class UserAuthFlowTest {
         return body.replace('\'', '"');
     }
 
+    // Sign-up mails a one-time confirmation link. The raw token exists only in
+    // that message -- the row stores nothing but its SHA-256 hash -- so pull it
+    // back out of the e-mail the same way a real user would follow the link.
+    private String confirmationTokenFromEmail() {
+
+        ArgumentCaptor<String> html = ArgumentCaptor.forClass(String.class);
+
+        verify(emailService)
+                .sendEmail(eq(EMAIL), eq("Confirm your email"), html.capture());
+
+        Matcher link = Pattern
+                .compile("confirmEmail\\?token=([^\"&\\s]+)")
+                .matcher(html.getValue());
+
+        assertThat(link.find())
+                .as("confirmation e-mail should contain a verification link")
+                .isTrue();
+
+        return link.group(1);
+    }
+
     @Test
     void fullSignupConfirmLoginRefreshLogoutFlow() throws Exception {
 
@@ -94,10 +121,9 @@ class UserAuthFlowTest {
         String stored = userRepository.findByEmail(EMAIL).orElseThrow().getPassword();
         assertThat(stored).isNotEqualTo(PASSWORD).startsWith("$2");
 
-        // 2. confirm e-mail with the OTP
-        mockMvc.perform(post("/users/confirmEmail")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json("{'email':'" + EMAIL + "','otp':'" + OTP + "'}")))
+        // 2. confirm e-mail with the token from the verification link
+        mockMvc.perform(get("/users/confirmEmail")
+                        .param("token", confirmationTokenFromEmail()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").exists());
 
