@@ -1,7 +1,7 @@
-package ExpenseTracker.SCB.Model;
+package com.expensetracker.budget.entity;
 
 import jakarta.persistence.*;
-
+import com.expensetracker.user.entity.User;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
