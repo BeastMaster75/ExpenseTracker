@@ -147,6 +147,30 @@ class BudgetFlowTest {
         return json.substring(start, json.indexOf('"', start));
     }
 
+    // Expenses now fail unless the balance covers them, so most flows need
+    // funding first.
+    private void fund(String token, String amount) throws Exception {
+
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':" + amount + ",'transactionType':'income'}")))
+                .andExpect(status().isOk());
+    }
+
+    private String spend(String token, String amount, String budgetName) throws Exception {
+
+        return mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':" + amount + ",'transactionType':'expense',"
+                                + "'budgetName':'" + budgetName + "'}")))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+    }
+
     private String createBudget(String token, String name, String limit) throws Exception {
 
         return mockMvc.perform(post("/budgets")
@@ -363,12 +387,9 @@ class BudgetFlowTest {
         String budget = createBudget(token, "Groceries", "4000");
         String budgetId = extractNumber(budget, "id");
 
-        mockMvc.perform(post("/transactions")
-                        .header("Authorization", "Bearer " + token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json("{'amount':250,'transactionType':'expense',"
-                                + "'budgetName':'Groceries'}")))
-                .andExpect(status().isOk());
+        fund(token, "1000");
+
+        spend(token, "250", "Groceries");
 
         // renaming and re-limiting must not reset what has been spent
         mockMvc.perform(patch("/budgets/" + budgetId)
@@ -416,6 +437,365 @@ class BudgetFlowTest {
                 .andExpect(jsonPath("$[0].amountLimit").value(1000))
                 // a revived budget starts its own period clean
                 .andExpect(jsonPath("$[0].spending").value(0));
+    }
+
+    @Test
+    void summaryAggregatesLimitsSpendingAndPercentage() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "4000");
+        createBudget(token, "Transport", "1000");
+
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':10000,'transactionType':'income'}")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':1000,'transactionType':'expense',"
+                                + "'budgetName':'Groceries'}")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':250,'transactionType':'expense',"
+                                + "'budgetName':'Transport'}")))
+                .andExpect(status().isOk());
+
+        // 5000 budgeted, 1250 spent -> 25.00% used, 3750 left
+        mockMvc.perform(get("/budgets/summary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalLimit").value(5000))
+                .andExpect(jsonPath("$.totalSpending").value(1250))
+                .andExpect(jsonPath("$.remaining").value(3750))
+                .andExpect(jsonPath("$.percentageUsed").value(25.00))
+                .andExpect(jsonPath("$.budgetCount").value(2))
+                .andExpect(jsonPath("$.periodMonth")
+                        .value(LocalDate.now().withDayOfMonth(1).toString()));
+    }
+
+    @Test
+    void summaryIsZeroWithoutBudgets() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        // no budgets means no division by zero
+        mockMvc.perform(get("/budgets/summary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalLimit").value(0))
+                .andExpect(jsonPath("$.totalSpending").value(0))
+                .andExpect(jsonPath("$.remaining").value(0))
+                .andExpect(jsonPath("$.percentageUsed").value(0))
+                .andExpect(jsonPath("$.budgetCount").value(0));
+    }
+
+    @Test
+    void summaryReportsOverspendAboveHundredPercent() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "100");
+
+        fund(token, "1000");
+
+        // exceeding the limit is allowed -- you cannot un-spend real money
+        spend(token, "150", "Groceries");
+
+        // the card needs a negative remaining and >100% to show over-budget
+        mockMvc.perform(get("/budgets/summary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.remaining").value(-50))
+                .andExpect(jsonPath("$.percentageUsed").value(150.00));
+    }
+
+    @Test
+    void summaryCountsOnlyOwnLiveBudgets() throws Exception {
+
+        String ownerToken = signUpAndLogin(OWNER);
+
+        String budget = createBudget(ownerToken, "Groceries", "4000");
+        createBudget(ownerToken, "Transport", "1000");
+
+        // a soft-deleted budget drops out of the totals
+        mockMvc.perform(delete("/budgets/" + extractNumber(budget, "id"))
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/budgets/summary")
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalLimit").value(1000))
+                .andExpect(jsonPath("$.budgetCount").value(1));
+
+        // and another user's budgets never leak in
+        String intruderToken = signUpAndLogin(INTRUDER);
+
+        mockMvc.perform(get("/budgets/summary")
+                        .header("Authorization", "Bearer " + intruderToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalLimit").value(0))
+                .andExpect(jsonPath("$.budgetCount").value(0));
+    }
+
+    @Test
+    void summaryRequiresAuthentication() throws Exception {
+
+        mockMvc.perform(get("/budgets/summary"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void budgetCarriesItsOwnPercentageAndRemaining() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        String budget = createBudget(token, "Groceries", "400");
+        String budgetId = extractNumber(budget, "id");
+
+        // a fresh budget is 0% used
+        mockMvc.perform(get("/budgets/" + budgetId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.percentageUsed").value(0))
+                .andExpect(jsonPath("$.remaining").value(400));
+
+        fund(token, "1000");
+        spend(token, "100", "Groceries");
+
+        mockMvc.perform(get("/budgets/" + budgetId)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.spending").value(100))
+                .andExpect(jsonPath("$.percentageUsed").value(25.00))
+                .andExpect(jsonPath("$.remaining").value(300));
+
+        // and the same figures come back in the list
+        mockMvc.perform(get("/budgets")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].percentageUsed").value(25.00))
+                .andExpect(jsonPath("$[0].remaining").value(300));
+    }
+
+    @Test
+    void percentageSurvivesAZeroLimit() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        // a zero limit must not blow up with a division by zero
+        String budget = createBudget(token, "Unbudgeted", "0");
+
+        mockMvc.perform(get("/budgets/" + extractNumber(budget, "id"))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.percentageUsed").value(0))
+                .andExpect(jsonPath("$.remaining").value(0));
+    }
+
+    @Test
+    void expenseCannotOverdrawTheBalance() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "4000");
+
+        fund(token, "100");
+
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':101,'transactionType':'expense',"
+                                + "'budgetName':'Groceries'}")))
+                .andExpect(status().isBadRequest());
+
+        // the rejected expense must leave nothing behind
+        User user = userRepository.findByEmail(OWNER).orElseThrow();
+
+        assertThat(user.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(100));
+        assertThat(user.getTotalExpense()).isEqualByComparingTo(BigDecimal.ZERO);
+
+        mockMvc.perform(get("/budgets")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$[0].spending").value(0));
+    }
+
+    @Test
+    void rejectsInvalidTransactionInput() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        // negative amount
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':-5,'transactionType':'income'}")))
+                .andExpect(status().isBadRequest());
+
+        // zero amount
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':0,'transactionType':'income'}")))
+                .andExpect(status().isBadRequest());
+
+        // missing type
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':10}")))
+                .andExpect(status().isBadRequest());
+
+        // unknown type
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':10,'transactionType':'refund'}")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void editingAnExpenseRestatesSpendingAndBalance() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "4000");
+
+        fund(token, "1000");
+
+        String tx = spend(token, "250", "Groceries");
+
+        mockMvc.perform(patch("/transactions/" + extractNumber(tx, "id"))
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':400}")))
+                .andExpect(status().isOk());
+
+        // spending follows the edit rather than double-counting
+        mockMvc.perform(get("/budgets")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$[0].spending").value(400))
+                .andExpect(jsonPath("$[0].percentageUsed").value(10.00));
+
+        User user = userRepository.findByEmail(OWNER).orElseThrow();
+
+        assertThat(user.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(600));
+        assertThat(user.getTotalExpense()).isEqualByComparingTo(BigDecimal.valueOf(400));
+    }
+
+    @Test
+    void movingAnExpenseBetweenBudgetsShiftsSpending() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "4000");
+        createBudget(token, "Transport", "1000");
+
+        fund(token, "1000");
+
+        String tx = spend(token, "250", "Groceries");
+
+        mockMvc.perform(patch("/transactions/" + extractNumber(tx, "id"))
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'budgetName':'Transport'}")))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/budgets")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$[0].name").value("Groceries"))
+                .andExpect(jsonPath("$[0].spending").value(0))
+                .andExpect(jsonPath("$[1].name").value("Transport"))
+                .andExpect(jsonPath("$[1].spending").value(250));
+    }
+
+    @Test
+    void deletingAnExpenseGivesBackSpendingAndBalance() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "4000");
+
+        fund(token, "1000");
+
+        String tx = spend(token, "250", "Groceries");
+
+        mockMvc.perform(delete("/transactions/" + extractNumber(tx, "id"))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/budgets")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(jsonPath("$[0].spending").value(0))
+                .andExpect(jsonPath("$[0].percentageUsed").value(0));
+
+        User user = userRepository.findByEmail(OWNER).orElseThrow();
+
+        assertThat(user.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(1000));
+        assertThat(user.getTotalExpense()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void cannotDeleteIncomeThatHasAlreadyBeenSpent() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "4000");
+
+        String income = mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':1000,'transactionType':'income'}")))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        spend(token, "800", "Groceries");
+
+        // removing the income would leave the balance at -800
+        mockMvc.perform(delete("/transactions/" + extractNumber(income, "id"))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
+
+        User user = userRepository.findByEmail(OWNER).orElseThrow();
+
+        assertThat(user.getBalance()).isEqualByComparingTo(BigDecimal.valueOf(200));
+        assertThat(user.getTotalIncome()).isEqualByComparingTo(BigDecimal.valueOf(1000));
+    }
+
+    @Test
+    void cannotTouchAnotherUsersTransaction() throws Exception {
+
+        String ownerToken = signUpAndLogin(OWNER);
+
+        createBudget(ownerToken, "Groceries", "4000");
+        fund(ownerToken, "1000");
+
+        String tx = spend(ownerToken, "250", "Groceries");
+        String txId = extractNumber(tx, "id");
+
+        String intruderToken = signUpAndLogin(INTRUDER);
+
+        mockMvc.perform(get("/transactions/" + txId)
+                        .header("Authorization", "Bearer " + intruderToken))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(delete("/transactions/" + txId)
+                        .header("Authorization", "Bearer " + intruderToken))
+                .andExpect(status().isNotFound());
+
+        // the owner's figures are untouched
+        mockMvc.perform(get("/budgets")
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(jsonPath("$[0].spending").value(250));
     }
 
     private String extractNumber(String json, String field) {

@@ -6,7 +6,7 @@ import com.expensetracker.transaction.dto.CreateTransactionDto;
 import com.expensetracker.transaction.dto.UpdateTransactionDto;
 import com.expensetracker.transaction.entity.Transaction;
 import com.expensetracker.transaction.service.TransactionService;
-import jakarta.validation.constraints.Positive;
+import jakarta.validation.Valid;
 import io.jsonwebtoken.Claims;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -50,7 +50,7 @@ public class TransactionController {
 
     @PostMapping
     public Transaction createTransaction(
-            @RequestBody CreateTransactionDto transaction,
+            @Valid @RequestBody CreateTransactionDto transaction,
             @RequestHeader("Authorization") String authorization
     ) {
 
@@ -65,7 +65,7 @@ public class TransactionController {
     @PatchMapping("/{id}")
     public Transaction updateTransaction(
             @PathVariable Long id,
-            @RequestBody UpdateTransactionDto dto,
+            @Valid @RequestBody UpdateTransactionDto dto,
             @RequestHeader("Authorization") String authorization
     ) {
 

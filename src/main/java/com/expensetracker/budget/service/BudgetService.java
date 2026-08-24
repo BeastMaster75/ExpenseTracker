@@ -1,6 +1,7 @@
 package com.expensetracker.budget.service;
 
 import com.expensetracker.auth.Authentication;
+import com.expensetracker.budget.dto.BudgetSummaryDto;
 import com.expensetracker.budget.dto.CreateBudgetDto;
 import com.expensetracker.budget.dto.UpdateBudgetDto;
 import com.expensetracker.budget.entity.Budget;
@@ -108,6 +109,40 @@ public class BudgetService {
         log.info("Getting budgets for userId: {}", userId);
 
         return budgetRepository.findAllByUserIdAndDeletedFalseOrderByNameAsc(userId);
+    }
+
+    // Totals for the "Total Monthly Budget" card. Summed here rather than in
+    // the client so every caller gets the same percentage, and rather than in
+    // SQL because a user's budget list is small and already scoped.
+    public BudgetSummaryDto getSummary(String token) {
+
+        Long userId = getUserId(token);
+
+        log.info("Getting budget summary for userId: {}", userId);
+
+        List<Budget> budgets = budgetRepository.findAllByUserIdAndDeletedFalseOrderByNameAsc(userId);
+
+        BigDecimal totalLimit = budgets.stream()
+                .map(Budget::getAmountLimit)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalSpending = budgets.stream()
+                .map(Budget::getSpending)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BudgetSummaryDto summary = new BudgetSummaryDto();
+
+        summary.setTotalLimit(totalLimit);
+        summary.setTotalSpending(totalSpending);
+        summary.setRemaining(totalLimit.subtract(totalSpending));
+        summary.setBudgetCount(budgets.size());
+        summary.setPeriodMonth(LocalDate.now().withDayOfMonth(1));
+
+        // Same helper the per-budget percentage uses, so the card and the rows
+        // below it can never disagree. Handles a zero total limit.
+        summary.setPercentageUsed(Budget.percentage(totalSpending, totalLimit));
+
+        return summary;
     }
 
     @Transactional

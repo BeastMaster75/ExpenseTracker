@@ -20,6 +20,7 @@ public class CreateTransactionDto{
     // check lives in the service where the type is known.
     private String budgetName;
 
+    @NotBlank(message = "transactionType is required")
     private String transactionType;
 
     private Date createdAt;
