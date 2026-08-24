@@ -117,6 +117,14 @@ public class UserController {
     ) {
         return userService.forgetPassword(dto);
     }
+
+
+    @PostMapping("/resendForgetPasswordOtp")
+    public Map<String, String> resendForgetPasswordOtp(
+            @Valid @RequestBody ResendOtpDto dto
+    ) {
+        return userService.resendForgetPasswordOtp(dto);
+    }
 //    @PostMapping("/resendConfirmationLink")
 //    public Map<String, String> resendConfirmationLink(
 //            @RequestHeader("Authorization") String authorization
