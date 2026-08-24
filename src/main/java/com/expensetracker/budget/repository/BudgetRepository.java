@@ -1,6 +1,6 @@
-package ExpenseTracker.SCB.Repository;
+package com.expensetracker.budget.repository;
 
-import ExpenseTracker.SCB.Model.Budget;
+import com.expensetracker.budget.entity.Budget;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

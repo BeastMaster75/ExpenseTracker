@@ -1,4 +1,4 @@
-package ExpenseTracker.SCB.DTO;
+package com.expensetracker.budget.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;

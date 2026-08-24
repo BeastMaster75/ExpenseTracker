@@ -1,8 +1,9 @@
-package ExpenseTracker.SCB.Controller;
+package com.expensetracker.budget.controller;
 
-import ExpenseTracker.SCB.DTO.BudgetRequestDTO;
-import ExpenseTracker.SCB.DTO.BudgetResponseDTO;
-import ExpenseTracker.SCB.Service.BudgetService;
+
+import com.expensetracker.budget.dto.BudgetRequestDTO;
+import com.expensetracker.budget.dto.BudgetResponseDTO;
+import com.expensetracker.budget.service.BudgetService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;

@@ -1,8 +1,7 @@
-package ExpenseTracker.SCB.DTO;
+package com.expensetracker.budget.dto;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -27,10 +26,6 @@ public class BudgetRequestDTO {
 
     public Long getUserId() {
         return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
     }
 
     public void setUserId(Long userId) {

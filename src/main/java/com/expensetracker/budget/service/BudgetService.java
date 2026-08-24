@@ -1,13 +1,12 @@
-package ExpenseTracker.SCB.Service;
+package com.expensetracker.budget.service;
 
-import ExpenseTracker.SCB.DTO.BudgetRequestDTO;
-import ExpenseTracker.SCB.DTO.BudgetResponseDTO;
-import ExpenseTracker.SCB.Model.Budget;
-import ExpenseTracker.SCB.Model.User;
-import ExpenseTracker.SCB.Repository.BudgetRepository;
-import ExpenseTracker.SCB.Repository.UserRepository;
+import com.expensetracker.budget.dto.BudgetRequestDTO;
+import com.expensetracker.budget.dto.BudgetResponseDTO;
 import org.springframework.stereotype.Service;
-
+import com.expensetracker.budget.repository.BudgetRepository;
+import com.expensetracker.user.repository.UserRepository;
+import com.expensetracker.user.entity.User;
+import com.expensetracker.budget.entity.Budget;
 import java.util.List;
 
 @Service
