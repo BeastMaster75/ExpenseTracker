@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -59,6 +60,37 @@ public class Budget {
 
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
+
+    // Derived, not stored. Serialised with the budget so the client never has
+    // to redo the maths -- and never has to handle the divide-by-zero itself.
+    @Transient
+    public BigDecimal getRemaining() {
+
+        if (amountLimit == null || spending == null) {
+            return BigDecimal.ZERO.setScale(2);
+        }
+
+        return amountLimit.subtract(spending);
+    }
+
+    @Transient
+    public BigDecimal getPercentageUsed() {
+        return percentage(spending, amountLimit);
+    }
+
+    // Shared with BudgetService#getSummary so a single budget and the totals
+    // card can never round differently. Free to exceed 100 -- overspending is
+    // a state the UI needs to show, not an error.
+    public static BigDecimal percentage(BigDecimal part, BigDecimal whole) {
+
+        if (part == null || whole == null || whole.signum() == 0) {
+            return BigDecimal.ZERO.setScale(2);
+        }
+
+        return part
+                .multiply(BigDecimal.valueOf(100))
+                .divide(whole, 2, RoundingMode.HALF_UP);
+    }
 
     @PrePersist
     protected void onCreate() {

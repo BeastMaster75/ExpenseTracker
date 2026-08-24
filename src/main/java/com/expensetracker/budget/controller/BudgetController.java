@@ -1,5 +1,6 @@
 package com.expensetracker.budget.controller;
 
+import com.expensetracker.budget.dto.BudgetSummaryDto;
 import com.expensetracker.budget.dto.CreateBudgetDto;
 import com.expensetracker.budget.dto.UpdateBudgetDto;
 import com.expensetracker.budget.entity.Budget;
@@ -39,6 +40,15 @@ public class BudgetController {
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
         return budgetService.createBudget(dto, bearerToken(authorization));
+    }
+
+    // Declared before /{id} for readability -- Spring already prefers the
+    // literal path, but keeping them adjacent makes the pairing obvious.
+    @GetMapping("/summary")
+    public BudgetSummaryDto getSummary(
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
+        return budgetService.getSummary(bearerToken(authorization));
     }
 
     @GetMapping("/{id}")
