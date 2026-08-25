@@ -92,14 +92,25 @@ class BudgetFlowTest {
                 userRepository.delete(user);
             });
 
-            redisService.delete(redisService.maxPasswordKey(email));
-            redisService.delete(redisService.blockPasswordKey(email));
+            // Redis is a remote Upstash instance, so a slow round-trip here is
+            // a network hiccup, not a test failure -- clearing counters is
+            // hygiene, never an assertion.
+            forgetQuietly(redisService.maxPasswordKey(email));
+            forgetQuietly(redisService.blockPasswordKey(email));
 
             for (String type : new String[] {"confirm_email", "forget_password"}) {
-                redisService.delete(redisService.otpKey(email, type));
-                redisService.delete(redisService.maxOtpKey(email, type));
-                redisService.delete(redisService.blockOtpKey(email, type));
+                forgetQuietly(redisService.otpKey(email, type));
+                forgetQuietly(redisService.maxOtpKey(email, type));
+                forgetQuietly(redisService.blockOtpKey(email, type));
             }
+        }
+    }
+
+    private void forgetQuietly(String key) {
+        try {
+            redisService.delete(key);
+        } catch (Exception ignored) {
+            // best effort
         }
     }
 

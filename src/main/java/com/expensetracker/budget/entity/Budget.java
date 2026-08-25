@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Entity
 @Table(
-        name = "budgetss",
+        name = "budgets",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_budget_user_name",
                 columnNames = {"user_id", "name"}
