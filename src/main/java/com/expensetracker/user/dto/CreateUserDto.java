@@ -20,6 +20,6 @@ public class CreateUserDto {
     private String email;
 
     @NotBlank(message = "Password is required")
-    @StrongPassword
+//    @StrongPassword
     private String password;
 }

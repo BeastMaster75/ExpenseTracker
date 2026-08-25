@@ -7,6 +7,7 @@ import com.expensetracker.common.email.EmailTemplate;
 import com.expensetracker.common.email.ResendOtp;
 import com.expensetracker.common.exception.AppException;
 import com.expensetracker.common.redis.RedisService;
+import com.expensetracker.common.security.EncryptAndDecryptSecurity;
 import com.expensetracker.common.security.HashSecurity;
 import com.expensetracker.user.dto.*;
 import com.expensetracker.user.entity.User;
@@ -112,12 +113,20 @@ public class UserService {
         Optional<User> userExist =
                 userRepository.findByEmail(user.getEmail());
 
+        String decryptedPassword =
+                EncryptAndDecryptSecurity.decrypt(
+                        user.getPassword()
+                );
+
+
+
         if (userExist.isPresent()) {
 
             User existingUser = userExist.get();
 
-            // User is active
+//            existingUser.setIsDeleted(true);
             if (!existingUser.getIsDeleted()) {
+
 
                 throw new AppException(
                         "User already exist",
@@ -125,14 +134,14 @@ public class UserService {
                 );
             }
 
-            // =========================
+
             // Restore soft-deleted user
-            // =========================
+
 
             existingUser.setUsername(user.getUsername());
 
             existingUser.setPassword(
-                    hashSecurity.hash(user.getPassword())
+                    hashSecurity.hash(decryptedPassword)
             );
 
             existingUser.setIsDeleted(false);
@@ -161,9 +170,6 @@ public class UserService {
             User restoredUser =
                     userRepository.save(existingUser);
 
-            // =========================
-            // Send verification email
-            // =========================
 
             String verificationLink =
                     "http://localhost:8081/users/confirmEmail?token="
@@ -186,9 +192,8 @@ public class UserService {
             return restoredUser;
         }
 
-        // =========================
-        // Create completely new user
-        // =========================
+        // Create new user
+
 
         User newUser = new User();
 
@@ -196,7 +201,7 @@ public class UserService {
         newUser.setEmail(user.getEmail());
 
         newUser.setPassword(
-                hashSecurity.hash(user.getPassword())
+                hashSecurity.hash(decryptedPassword)
         );
 
         newUser.setIsDeleted(false);
@@ -223,9 +228,6 @@ public class UserService {
         User savedUser =
                 userRepository.save(newUser);
 
-        // =========================
-        // Send verification email
-        // =========================
 
         String verificationLink =
                 "http://localhost:8081/users/confirmEmail?token="
@@ -314,28 +316,16 @@ public class UserService {
                 "Email confirmed successfully"
         );
     }
-
-    public Map<String, String> resendConfirmationLink(
-            String authorization
-    ) {
-
-        Claims claims =
-                authentication.auth(
-                        authorization,
-                        false
-                );
-
-        Long id =
-                claims.get("id", Long.class);
+    public Map<String, String> resendConfirmationLink(String email) {
 
         log.info(
-                "Resend confirmation link started - userId: {}",
-                id
+                "Resend confirmation link started - email: {}",
+                email
         );
 
         User user =
                 userRepository
-                        .findByIdAndIsDeletedFalse(id)
+                        .findByEmailAndIsDeletedFalse(email)
                         .orElseThrow(() ->
                                 new AppException(
                                         "User not found",
@@ -382,7 +372,7 @@ public class UserService {
 
         log.info(
                 "Confirmation link resent successfully - userId: {}",
-                id
+                user.getId()
         );
 
         return Map.of(
@@ -395,50 +385,79 @@ public class UserService {
 
         log.info("Login attempt - email: {}", user.getEmail());
 
-        User existingUser = userRepository.findByEmailAndIsDeletedFalse(user.getEmail())
-                .orElseThrow(() -> {
+        User existingUser =
+                userRepository.findByEmailAndIsDeletedFalse(user.getEmail())
+                        .orElseThrow(() -> {
 
-                    log.warn("Login failed - user not found: {}", user.getEmail());
+                            log.warn(
+                                    "Login failed - user not found: {}",
+                                    user.getEmail()
+                            );
 
-                    return new AppException(
-                            "User not exist",
-                            HttpStatus.NOT_FOUND
-                    );
-                });
+                            return new AppException(
+                                    "User not exist",
+                                    HttpStatus.NOT_FOUND
+                            );
+                        });
 
-        Long blockedTime = redisService.ttlTimer(
-                redisService.blockPasswordKey(existingUser.getEmail())
-        );
+        if (!existingUser.getIsConfirmed()) {
+
+            throw new AppException(
+                    "Email not confirmed",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+
+        String decryptedPassword =
+                EncryptAndDecryptSecurity.decrypt(
+                        user.getPassword()
+                );
+
+
+        Long blockedTime =
+                redisService.ttlTimer(
+                        redisService.blockPasswordKey(
+                                existingUser.getEmail()
+                        )
+                );
+
+        if (blockedTime > 0) {
+
+            log.warn(
+                    "Login blocked - userId: {} - remaining seconds: {}",
+                    existingUser.getId(),
+                    blockedTime
+            );
+
+            throw new AppException(
+                    String.format(
+                            "You have executed the maximum number of tries, please try again after %s seconds",
+                            blockedTime
+                    ),
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
 
         if (!hashSecurity.compare(
-                user.getPassword(),
+                decryptedPassword,
                 existingUser.getPassword()
         )) {
 
-            log.warn("Login failed - invalid password - userId: {}", existingUser.getId());
-
-            if (blockedTime > 0) {
-
-                log.warn(
-                        "Login blocked - userId: {} - remaining seconds: {}",
-                        existingUser.getId(),
-                        blockedTime
-                );
-
-                throw new AppException(
-                        String.format(
-                                "You have executed the maximum number of tries, please try again after %s seconds",
-                                blockedTime
-                        ),
-                        HttpStatus.BAD_REQUEST
-                );
-            }
+            log.warn(
+                    "Login failed - invalid password - userId: {}",
+                    existingUser.getId()
+            );
 
             long maxPassTries = 0;
 
-            String value = redisService.get(
-                    redisService.maxPasswordKey(user.getEmail())
-            );
+            String value =
+                    redisService.get(
+                            redisService.maxPasswordKey(
+                                    user.getEmail()
+                            )
+                    );
 
             if (value != null) {
                 maxPassTries = Long.parseLong(value);
@@ -447,7 +466,9 @@ public class UserService {
             if (maxPassTries >= 5) {
 
                 redisService.setValue(
-                        redisService.blockPasswordKey(user.getEmail()),
+                        redisService.blockPasswordKey(
+                                user.getEmail()
+                        ),
                         "1",
                         60 * 5
                 );
@@ -464,11 +485,15 @@ public class UserService {
             }
 
             redisService.incr(
-                    redisService.maxPasswordKey(user.getEmail())
+                    redisService.maxPasswordKey(
+                            user.getEmail()
+                    )
             );
 
             redisService.expire(
-                    redisService.maxPasswordKey(user.getEmail()),
+                    redisService.maxPasswordKey(
+                            user.getEmail()
+                    ),
                     60 * 5
             );
 
@@ -478,11 +503,17 @@ public class UserService {
             );
         }
 
-        String accessToken = tokenService.generateAccessToken(existingUser);
 
-        String refreshToken = tokenService.generateRefreshToken(existingUser);
+        String accessToken =
+                tokenService.generateAccessToken(existingUser);
 
-        log.info("Login successful - userId: {}", existingUser.getId());
+        String refreshToken =
+                tokenService.generateRefreshToken(existingUser);
+
+        log.info(
+                "Login successful - userId: {}",
+                existingUser.getId()
+        );
 
         return Map.of(
                 "accessToken", accessToken,
