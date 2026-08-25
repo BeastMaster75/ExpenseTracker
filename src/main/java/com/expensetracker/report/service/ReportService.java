@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static io.netty.util.internal.StringUtil.escapeCsv;
+
 @Service
 @RequiredArgsConstructor
 public class ReportService {
@@ -170,4 +172,338 @@ public class ReportService {
                 .categorySpending(spendingByCategory)
                 .build();
     }
+
+
+
+    public byte[] downloadReport(
+            String month,
+            String token
+    ) {
+
+        // =========================
+        // Authenticate user
+        // =========================
+
+        Claims claims =
+                authentication.auth(
+                        token,
+                        false
+                );
+
+        Long userId =
+                claims.get(
+                        "id",
+                        Long.class
+                );
+
+        // =========================
+        // Validate month
+        // =========================
+
+        YearMonth yearMonth;
+
+        try {
+
+            yearMonth =
+                    YearMonth.parse(month);
+
+        } catch (Exception e) {
+
+            throw new AppException(
+                    "Invalid month format. Use yyyy-MM",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        // =========================
+        // Find user
+        // =========================
+
+        userRepository
+                .findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() ->
+                        new AppException(
+                                "User not found",
+                                HttpStatus.NOT_FOUND
+                        )
+                );
+
+        // =========================
+        // Month range
+        // =========================
+
+        LocalDateTime startDateTime =
+                yearMonth
+                        .atDay(1)
+                        .atStartOfDay();
+
+        LocalDateTime endDateTime =
+                yearMonth
+                        .plusMonths(1)
+                        .atDay(1)
+                        .atStartOfDay();
+
+        Date from =
+                Date.from(
+                        startDateTime
+                                .atZone(
+                                        ZoneId.systemDefault()
+                                )
+                                .toInstant()
+                );
+
+        Date to =
+                Date.from(
+                        endDateTime
+                                .atZone(
+                                        ZoneId.systemDefault()
+                                )
+                                .toInstant()
+                );
+
+        // =========================
+        // Get transactions
+        // =========================
+
+        List<Transaction> transactions =
+                transactionRepository
+                        .findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanAndIsDeletedFalse(
+                                userId,
+                                from,
+                                to
+                        );
+
+        // =========================
+        // Calculate totals
+        // =========================
+
+        BigDecimal totalIncome =
+                transactions.stream()
+                        .filter(transaction ->
+                                "INCOME".equalsIgnoreCase(
+                                        transaction.getType()
+                                )
+                        )
+                        .map(Transaction::getAmount)
+                        .reduce(
+                                BigDecimal.ZERO,
+                                BigDecimal::add
+                        );
+
+        BigDecimal totalExpenses =
+                transactions.stream()
+                        .filter(transaction ->
+                                "EXPENSE".equalsIgnoreCase(
+                                        transaction.getType()
+                                )
+                        )
+                        .map(Transaction::getAmount)
+                        .reduce(
+                                BigDecimal.ZERO,
+                                BigDecimal::add
+                        );
+
+        BigDecimal netIncome =
+                totalIncome.subtract(totalExpenses);
+
+        // =========================
+        // Spending by category
+        // =========================
+
+        Map<String, BigDecimal> spendingByCategory =
+                transactions.stream()
+                        .filter(transaction ->
+                                "EXPENSE".equalsIgnoreCase(
+                                        transaction.getType()
+                                )
+                        )
+                        .filter(transaction ->
+                                transaction.getBudget() != null
+                        )
+                        .collect(
+                                Collectors.groupingBy(
+                                        transaction ->
+                                                transaction
+                                                        .getBudget()
+                                                        .getName(),
+
+                                        Collectors.reducing(
+                                                BigDecimal.ZERO,
+                                                Transaction::getAmount,
+                                                BigDecimal::add
+                                        )
+                                )
+                        );
+
+        // =========================
+        // Top category
+        // =========================
+
+        String topCategory = null;
+
+        BigDecimal topCategorySpending =
+                BigDecimal.ZERO;
+
+        if (!spendingByCategory.isEmpty()) {
+
+            Map.Entry<String, BigDecimal> topEntry =
+                    spendingByCategory.entrySet()
+                            .stream()
+                            .max(
+                                    Map.Entry.comparingByValue()
+                            )
+                            .orElse(null);
+
+            if (topEntry != null) {
+
+                topCategory =
+                        topEntry.getKey();
+
+                topCategorySpending =
+                        topEntry.getValue();
+            }
+        }
+
+        // =========================
+        // Build CSV
+        // =========================
+
+        StringBuilder csv =
+                new StringBuilder();
+
+        // =========================
+        // Report Summary
+        // =========================
+
+        csv.append("Report Summary\n");
+
+        csv.append("Month,")
+                .append(yearMonth)
+                .append("\n");
+
+        csv.append("Total Income,")
+                .append(totalIncome)
+                .append("\n");
+
+        csv.append("Total Expenses,")
+                .append(totalExpenses)
+                .append("\n");
+
+        csv.append("Net Income,")
+                .append(netIncome)
+                .append("\n");
+
+        csv.append("Top Category,")
+                .append(
+                        topCategory != null
+                                ? escapeCsv(topCategory)
+                                : ""
+                )
+                .append("\n");
+
+        csv.append("Top Category Spending,")
+                .append(topCategorySpending)
+                .append("\n");
+
+        csv.append("\n");
+
+        // =========================
+        // Category Spending
+        // =========================
+
+        csv.append("Category Spending\n");
+
+        csv.append(
+                "Category,Amount\n"
+        );
+
+        for (
+                Map.Entry<String, BigDecimal> entry
+                : spendingByCategory.entrySet()
+        ) {
+
+            csv.append(
+                            escapeCsv(entry.getKey())
+                    )
+                    .append(",");
+
+            csv.append(
+                            entry.getValue()
+                    )
+                    .append("\n");
+        }
+
+        csv.append("\n");
+
+        // =========================
+        // Transactions
+        // =========================
+
+        csv.append("Transactions\n");
+
+        csv.append(
+                "Type,Amount,Budget,Created At\n"
+        );
+
+        for (Transaction transaction : transactions) {
+
+            String type =
+                    transaction.getType() != null
+                            ? transaction
+                            .getType()
+                            .toString()
+                            : "";
+
+            String amount =
+                    transaction.getAmount() != null
+                            ? transaction
+                            .getAmount()
+                            .toString()
+                            : "0";
+
+            String budget =
+                    transaction.getBudget() != null
+                            ? transaction
+                            .getBudget()
+                            .getName()
+                            : "";
+
+            String createdAt =
+                    transaction.getCreatedAt() != null
+                            ? transaction
+                            .getCreatedAt()
+                            .toString()
+                            : "";
+
+            csv.append(
+                    escapeCsv(type)
+            ).append(",");
+
+            csv.append(
+                    escapeCsv(amount)
+            ).append(",");
+
+            csv.append(
+                    escapeCsv(budget)
+            ).append(",");
+
+            csv.append(
+                    escapeCsv(createdAt)
+            ).append("\n");
+        }
+
+        // =========================
+        // UTF-8 BOM
+        // =========================
+
+        String content =
+                "\uFEFF" + csv;
+
+        return content.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8
+        );
+    }
+
+
+
 }

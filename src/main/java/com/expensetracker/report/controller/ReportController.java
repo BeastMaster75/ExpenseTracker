@@ -5,7 +5,9 @@ import com.expensetracker.report.dto.CreateReportDto;
 import com.expensetracker.report.dto.ReportResponse;
 import com.expensetracker.report.service.ReportService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -61,4 +63,5 @@ public class ReportController {
 
         return ResponseEntity.ok(response);
     }
+    @GetMapping("/download") public ResponseEntity<byte[]> downloadReport( @RequestParam String month, @CookieValue( value = "accessToken", required = false ) String accessToken ) { byte[] csv = reportService.downloadReport( month, accessToken ); return ResponseEntity.ok() .header( HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"report-" + month + ".csv\"" ) .contentType( MediaType.parseMediaType("text/csv") ) .body(csv); }
 }

@@ -178,10 +178,6 @@ public class UserController {
                         getRefreshToken(refreshToken)
                 );
 
-        // =========================
-        // New Access Token
-        // =========================
-
         ResponseCookie accessTokenCookie =
                 ResponseCookie
                         .from(
@@ -191,24 +187,7 @@ public class UserController {
                         .httpOnly(true)
                         .secure(false)
                         .path("/")
-                        .maxAge(3 * 60)
-                        .sameSite("Lax")
-                        .build();
-
-        // =========================
-        // New Refresh Token
-        // =========================
-
-        ResponseCookie refreshTokenCookie =
-                ResponseCookie
-                        .from(
-                                "refreshToken",
-                                tokens.get("refreshToken")
-                        )
-                        .httpOnly(true)
-                        .secure(false)
-                        .path("/")
-                        .maxAge(7 * 24 * 60 * 60)
+                        .maxAge(15 * 60)
                         .sameSite("Lax")
                         .build();
 
@@ -218,10 +197,6 @@ public class UserController {
                         "Set-Cookie",
                         accessTokenCookie.toString()
                 )
-                .header(
-                        "Set-Cookie",
-                        refreshTokenCookie.toString()
-                )
                 .body(
                         Map.of(
                                 "message",
@@ -229,7 +204,6 @@ public class UserController {
                         )
                 );
     }
-
     // =========================================================
     // Logout
     // =========================================================
