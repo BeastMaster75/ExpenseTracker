@@ -39,7 +39,6 @@ public class ReportService {
             CreateReportDto dto,
             String token
     ) {
-        // Get user ID from access token
         Claims claims = authentication.auth(token, false);
         Long userId = claims.get("id", Long.class);
 
@@ -58,12 +57,11 @@ public class ReportService {
             );
         }
 
-        // Start of requested month
+
         LocalDateTime startDateTime = month
                 .atDay(1)
                 .atStartOfDay();
 
-        // Start of next month
         LocalDateTime endDateTime = month
                 .plusMonths(1)
                 .atDay(1)
@@ -81,7 +79,6 @@ public class ReportService {
                         .toInstant()
         );
 
-        // Get all transactions created during this month
         List<Transaction> transactions =
                 transactionRepository
                         .findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanAndIsDeletedFalse(
@@ -90,7 +87,6 @@ public class ReportService {
                                 to
                         );
 
-        // Calculate total income
         BigDecimal totalIncome = transactions.stream()
                 .filter(transaction ->
                         "INCOME".equalsIgnoreCase(transaction.getType())
@@ -101,7 +97,6 @@ public class ReportService {
                         BigDecimal::add
                 );
 
-        // Calculate total expenses
         BigDecimal totalExpenses = transactions.stream()
                 .filter(transaction ->
                         "EXPENSE".equalsIgnoreCase(transaction.getType())
@@ -112,11 +107,9 @@ public class ReportService {
                         BigDecimal::add
                 );
 
-        // Net income = income - expenses
         BigDecimal netIncome =
                 totalIncome.subtract(totalExpenses);
 
-        // Calculate spending per category
         Map<String, BigDecimal> spendingByCategory =
                 transactions.stream()
                         .filter(transaction ->
@@ -152,7 +145,6 @@ public class ReportService {
             }
         }
 
-        // Get existing report for this user/month or create a new one
         Report report = reportRepository
                 .findByUserIdAndMonth(userId, month)
                 .orElseGet(Report::new);

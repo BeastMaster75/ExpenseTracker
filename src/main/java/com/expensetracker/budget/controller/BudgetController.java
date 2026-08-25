@@ -17,69 +17,164 @@ import java.util.Map;
 @RequestMapping("/budgets")
 public class BudgetController {
 
-    private static final String BEARER_PREFIX = "Bearer ";
-
     private final BudgetService budgetService;
 
-    public BudgetController(BudgetService budgetService) {
+    public BudgetController(
+            BudgetService budgetService
+    ) {
         this.budgetService = budgetService;
     }
 
-    private String bearerToken(String authorization) {
+    // =========================================================
+    // Get Access Token from Cookie
+    // =========================================================
 
-        if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
-            throw new AppException("Authorization header is required", HttpStatus.UNAUTHORIZED);
+    private String getAccessToken(String accessToken) {
+
+        if (accessToken == null || accessToken.isBlank()) {
+
+            throw new AppException(
+                    "Access token is required",
+                    HttpStatus.UNAUTHORIZED
+            );
         }
 
-        return authorization.substring(BEARER_PREFIX.length());
+        return accessToken;
     }
+
+    // =========================================================
+    // Create Budget
+    // =========================================================
 
     @PostMapping
     public Budget createBudget(
-            @Valid @RequestBody CreateBudgetDto dto,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+
+            @Valid
+            @RequestBody
+            CreateBudgetDto dto,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
-        return budgetService.createBudget(dto, bearerToken(authorization));
+
+        return budgetService.createBudget(
+                dto,
+                getAccessToken(accessToken)
+        );
     }
 
-    // Declared before /{id} for readability -- Spring already prefers the
-    // literal path, but keeping them adjacent makes the pairing obvious.
+    // =========================================================
+    // Budget Summary
+    // =========================================================
+
     @GetMapping("/summary")
     public BudgetSummaryDto getSummary(
-            @RequestHeader(value = "Authorization", required = false) String authorization
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
-        return budgetService.getSummary(bearerToken(authorization));
+
+        return budgetService.getSummary(
+                getAccessToken(accessToken)
+        );
     }
+
+    // =========================================================
+    // Get Budget By ID
+    // =========================================================
 
     @GetMapping("/{id}")
     public Budget getBudgetById(
-            @PathVariable Long id,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+
+            @PathVariable
+            Long id,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
-        return budgetService.getBudgetById(id, bearerToken(authorization));
+
+        return budgetService.getBudgetById(
+                id,
+                getAccessToken(accessToken)
+        );
     }
+
+    // =========================================================
+    // Get All Budgets
+    // =========================================================
 
     @GetMapping
     public List<Budget> getBudgets(
-            @RequestHeader(value = "Authorization", required = false) String authorization
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
-        return budgetService.getBudgets(bearerToken(authorization));
+
+        return budgetService.getBudgets(
+                getAccessToken(accessToken)
+        );
     }
+
+    // =========================================================
+    // Update Budget
+    // =========================================================
 
     @PatchMapping("/{id}")
     public Budget updateBudget(
-            @PathVariable Long id,
-            @Valid @RequestBody UpdateBudgetDto dto,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+
+            @PathVariable
+            Long id,
+
+            @Valid
+            @RequestBody
+            UpdateBudgetDto dto,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
-        return budgetService.updateBudget(id, dto, bearerToken(authorization));
+
+        return budgetService.updateBudget(
+                id,
+                dto,
+                getAccessToken(accessToken)
+        );
     }
+
+    // =========================================================
+    // Delete Budget
+    // =========================================================
 
     @DeleteMapping("/{id}")
     public Map<String, String> deleteBudget(
-            @PathVariable Long id,
-            @RequestHeader(value = "Authorization", required = false) String authorization
+
+            @PathVariable
+            Long id,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
-        return budgetService.deleteBudget(id, bearerToken(authorization));
+
+        return budgetService.deleteBudget(
+                id,
+                getAccessToken(accessToken)
+        );
     }
 }

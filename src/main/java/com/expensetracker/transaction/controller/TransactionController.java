@@ -6,8 +6,8 @@ import com.expensetracker.transaction.dto.CreateTransactionDto;
 import com.expensetracker.transaction.dto.UpdateTransactionDto;
 import com.expensetracker.transaction.entity.Transaction;
 import com.expensetracker.transaction.service.TransactionService;
-import jakarta.validation.Valid;
 import io.jsonwebtoken.Claims;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -15,8 +15,6 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/transactions")
 public class TransactionController {
-
-    private static final String BEARER_PREFIX = "Bearer ";
 
     private final TransactionService transactionService;
     private final Authentication authentication;
@@ -29,32 +27,61 @@ public class TransactionController {
         this.authentication = authentication;
     }
 
-    private String bearerToken(String authorization) {
+    // =========================================================
+    // Get Access Token from Cookie
+    // =========================================================
 
-        if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
+    private String getAccessToken(String accessToken) {
+
+        if (accessToken == null || accessToken.isBlank()) {
+
             throw new AppException(
-                    "Authorization header is required",
+                    "Access token is required",
                     HttpStatus.UNAUTHORIZED
             );
         }
 
-        return authorization.substring(BEARER_PREFIX.length());
+        return accessToken;
     }
+
+    // =========================================================
+    // Get User ID from Access Token
+    // =========================================================
 
     private Long getUserId(String token) {
 
-        Claims claims = authentication.auth(token, false);
+        Claims claims =
+                authentication.auth(
+                        token,
+                        false
+                );
 
-        return claims.get("id", Long.class);
+        return claims.get(
+                "id",
+                Long.class
+        );
     }
+
+    // =========================================================
+    // Create Transaction
+    // =========================================================
 
     @PostMapping
     public Transaction createTransaction(
-            @Valid @RequestBody CreateTransactionDto transaction,
-            @RequestHeader("Authorization") String authorization
+
+            @Valid
+            @RequestBody
+            CreateTransactionDto transaction,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
 
-        String token = bearerToken(authorization);
+        String token =
+                getAccessToken(accessToken);
 
         return transactionService.createTransaction(
                 transaction,
@@ -62,14 +89,29 @@ public class TransactionController {
         );
     }
 
+    // =========================================================
+    // Update Transaction
+    // =========================================================
+
     @PatchMapping("/{id}")
     public Transaction updateTransaction(
-            @PathVariable Long id,
-            @Valid @RequestBody UpdateTransactionDto dto,
-            @RequestHeader("Authorization") String authorization
+
+            @PathVariable
+            Long id,
+
+            @Valid
+            @RequestBody
+            UpdateTransactionDto dto,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
 
-        String token = bearerToken(authorization);
+        String token =
+                getAccessToken(accessToken);
 
         return transactionService.updateTransaction(
                 id,
@@ -78,13 +120,25 @@ public class TransactionController {
         );
     }
 
+    // =========================================================
+    // Get Transaction By ID
+    // =========================================================
+
     @GetMapping("/{id}")
     public Transaction getTransactionById(
-            @RequestHeader("Authorization") String authorization,
-            @PathVariable Long id
+
+            @PathVariable
+            Long id,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
 
-        String token = bearerToken(authorization);
+        String token =
+                getAccessToken(accessToken);
 
         return transactionService.getTransactionById(
                 id,
@@ -92,13 +146,25 @@ public class TransactionController {
         );
     }
 
+    // =========================================================
+    // Delete Transaction
+    // =========================================================
+
     @DeleteMapping("/{id}")
     public void deleteTransaction(
-            @PathVariable Long id,
-            @RequestHeader("Authorization") String authorization
+
+            @PathVariable
+            Long id,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
 
-        String token = bearerToken(authorization);
+        String token =
+                getAccessToken(accessToken);
 
         transactionService.deleteTransaction(
                 id,
@@ -106,17 +172,40 @@ public class TransactionController {
         );
     }
 
+    // =========================================================
+    // Get Transactions
+    // =========================================================
+
     @GetMapping
     public Page<Transaction> getTransactions(
-            @RequestHeader("Authorization") String authorization,
-            @RequestParam(defaultValue = "last_month") String range,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+
+            @RequestParam(
+                    defaultValue = "last_month"
+            )
+            String range,
+
+            @RequestParam(
+                    defaultValue = "0"
+            )
+            int page,
+
+            @RequestParam(
+                    defaultValue = "10"
+            )
+            int size,
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
     ) {
 
-        String token = bearerToken(authorization);
+        String token =
+                getAccessToken(accessToken);
 
-        Long userId = getUserId(token);
+        Long userId =
+                getUserId(token);
 
         return transactionService.getTransactions(
                 userId,
