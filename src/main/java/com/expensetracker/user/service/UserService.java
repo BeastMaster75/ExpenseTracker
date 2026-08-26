@@ -3,7 +3,6 @@ package com.expensetracker.user.service;
 import com.expensetracker.auth.Authentication;
 import com.expensetracker.auth.TokenService;
 import com.expensetracker.common.email.EmailService;
-import com.expensetracker.common.email.EmailTemplate;
 import com.expensetracker.common.email.ResendOtp;
 import com.expensetracker.common.exception.AppException;
 import com.expensetracker.common.redis.RedisService;
@@ -30,7 +29,7 @@ import java.util.Optional;
 import java.math.BigDecimal;
 import java.util.UUID;
 import com.expensetracker.common.email.ConfirmEmailTemplate;
-import java.util.Optional;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -105,28 +104,17 @@ public class UserService {
 
     public User createUser(CreateUserDto user) {
 
-        log.info(
-                "Creating user with email: {}",
-                user.getEmail()
-        );
+        log.info("Creating user with email: {}", user.getEmail());
 
-        Optional<User> userExist =
-                userRepository.findByEmail(user.getEmail());
+        Optional<User> userExist = userRepository.findByEmail(user.getEmail());
 
-        String decryptedPassword =
-                EncryptAndDecryptSecurity.decrypt(
-                        user.getPassword()
-                );
-
-
+        String decryptedPassword = EncryptAndDecryptSecurity.decrypt(user.getPassword());
 
         if (userExist.isPresent()) {
 
             User existingUser = userExist.get();
 
-//            existingUser.setIsDeleted(true);
             if (!existingUser.getIsDeleted()) {
-
 
                 throw new AppException(
                         "User already exist",
@@ -134,9 +122,7 @@ public class UserService {
                 );
             }
 
-
             // Restore soft-deleted user
-
 
             existingUser.setUsername(user.getUsername());
 
@@ -153,8 +139,7 @@ public class UserService {
             existingUser.setTotalIncome(BigDecimal.ZERO);
             existingUser.setTotalExpense(BigDecimal.ZERO);
 
-            String verificationToken =
-                    generateEmailVerificationToken();
+            String verificationToken = generateEmailVerificationToken();
 
             existingUser.setEmailVerificationTokenHash(
                     hashVerificationToken(verificationToken)
@@ -162,18 +147,14 @@ public class UserService {
 
             existingUser.setEmailVerificationTokenExpiresAt(
                     new Date(
-                            System.currentTimeMillis()
-                                    + 15 * 60 * 1000
+                            System.currentTimeMillis() + 15 * 60 * 1000
                     )
             );
 
-            User restoredUser =
-                    userRepository.save(existingUser);
-
+            User restoredUser = userRepository.save(existingUser);
 
             String verificationLink =
-                    "http://localhost:8081/users/confirmEmail?token="
-                            + verificationToken;
+                    "http://localhost:8081/users/confirmEmail?token=" + verificationToken;
 
             sendEmail.sendEmail(
                     restoredUser.getEmail(),
@@ -194,7 +175,6 @@ public class UserService {
 
         // Create new user
 
-
         User newUser = new User();
 
         newUser.setUsername(user.getUsername());
@@ -211,8 +191,7 @@ public class UserService {
         newUser.setTotalIncome(BigDecimal.ZERO);
         newUser.setTotalExpense(BigDecimal.ZERO);
 
-        String verificationToken =
-                generateEmailVerificationToken();
+        String verificationToken = generateEmailVerificationToken();
 
         newUser.setEmailVerificationTokenHash(
                 hashVerificationToken(verificationToken)
@@ -220,18 +199,14 @@ public class UserService {
 
         newUser.setEmailVerificationTokenExpiresAt(
                 new Date(
-                        System.currentTimeMillis()
-                                + 15 * 60 * 1000
+                        System.currentTimeMillis() + 15 * 60 * 1000
                 )
         );
 
-        User savedUser =
-                userRepository.save(newUser);
-
+        User savedUser = userRepository.save(newUser);
 
         String verificationLink =
-                "http://localhost:8081/users/confirmEmail?token="
-                        + verificationToken;
+                "http://localhost:8081/users/confirmEmail?token=" + verificationToken;
 
         sendEmail.sendEmail(
                 savedUser.getEmail(),
@@ -316,6 +291,7 @@ public class UserService {
                 "Email confirmed successfully"
         );
     }
+
     public Map<String, String> resendConfirmationLink(String email) {
 
         log.info(
@@ -385,20 +361,16 @@ public class UserService {
 
         log.info("Login attempt - email: {}", user.getEmail());
 
-        User existingUser =
-                userRepository.findByEmailAndIsDeletedFalse(user.getEmail())
-                        .orElseThrow(() -> {
+        User existingUser = userRepository.findByEmailAndIsDeletedFalse(user.getEmail())
+                .orElseThrow(() -> {
 
-                            log.warn(
-                                    "Login failed - user not found: {}",
-                                    user.getEmail()
-                            );
+                    log.warn("Login failed - user not found: {}", user.getEmail());
 
-                            return new AppException(
-                                    "User not exist",
-                                    HttpStatus.NOT_FOUND
-                            );
-                        });
+                    return new AppException(
+                            "User not exist",
+                            HttpStatus.NOT_FOUND
+                    );
+                });
 
         if (!existingUser.getIsConfirmed()) {
 
@@ -408,27 +380,13 @@ public class UserService {
             );
         }
 
+        String decryptedPassword = EncryptAndDecryptSecurity.decrypt(user.getPassword());
 
-        String decryptedPassword =
-                EncryptAndDecryptSecurity.decrypt(
-                        user.getPassword()
-                );
-
-
-        Long blockedTime =
-                redisService.ttlTimer(
-                        redisService.blockPasswordKey(
-                                existingUser.getEmail()
-                        )
-                );
+        Long blockedTime = redisService.ttlTimer(redisService.blockPasswordKey(existingUser.getEmail()));
 
         if (blockedTime > 0) {
 
-            log.warn(
-                    "Login blocked - userId: {} - remaining seconds: {}",
-                    existingUser.getId(),
-                    blockedTime
-            );
+            log.warn("Login blocked - userId: {} - remaining seconds: {}", existingUser.getId(), blockedTime);
 
             throw new AppException(
                     String.format(
@@ -439,25 +397,13 @@ public class UserService {
             );
         }
 
+        if (!hashSecurity.compare(decryptedPassword, existingUser.getPassword())) {
 
-        if (!hashSecurity.compare(
-                decryptedPassword,
-                existingUser.getPassword()
-        )) {
-
-            log.warn(
-                    "Login failed - invalid password - userId: {}",
-                    existingUser.getId()
-            );
+            log.warn("Login failed - invalid password - userId: {}", existingUser.getId());
 
             long maxPassTries = 0;
 
-            String value =
-                    redisService.get(
-                            redisService.maxPasswordKey(
-                                    user.getEmail()
-                            )
-                    );
+            String value = redisService.get(redisService.maxPasswordKey(user.getEmail()));
 
             if (value != null) {
                 maxPassTries = Long.parseLong(value);
@@ -465,18 +411,9 @@ public class UserService {
 
             if (maxPassTries >= 5) {
 
-                redisService.setValue(
-                        redisService.blockPasswordKey(
-                                user.getEmail()
-                        ),
-                        "1",
-                        60 * 5
-                );
+                redisService.setValue(redisService.blockPasswordKey(user.getEmail()), "1", 60 * 5);
 
-                log.warn(
-                        "User blocked after maximum login attempts - userId: {}",
-                        existingUser.getId()
-                );
+                log.warn("User blocked after maximum login attempts - userId: {}", existingUser.getId());
 
                 throw new AppException(
                         "you have executed the maximum number of tries",
@@ -484,18 +421,8 @@ public class UserService {
                 );
             }
 
-            redisService.incr(
-                    redisService.maxPasswordKey(
-                            user.getEmail()
-                    )
-            );
-
-            redisService.expire(
-                    redisService.maxPasswordKey(
-                            user.getEmail()
-                    ),
-                    60 * 5
-            );
+            redisService.incr(redisService.maxPasswordKey(user.getEmail()));
+            redisService.expire(redisService.maxPasswordKey(user.getEmail()), 60 * 5);
 
             throw new AppException(
                     "Invalid password",
@@ -503,17 +430,10 @@ public class UserService {
             );
         }
 
+        String accessToken = tokenService.generateAccessToken(existingUser);
+        String refreshToken = tokenService.generateRefreshToken(existingUser);
 
-        String accessToken =
-                tokenService.generateAccessToken(existingUser);
-
-        String refreshToken =
-                tokenService.generateRefreshToken(existingUser);
-
-        log.info(
-                "Login successful - userId: {}",
-                existingUser.getId()
-        );
+        log.info("Login successful - userId: {}", existingUser.getId());
 
         return Map.of(
                 "accessToken", accessToken,
@@ -572,28 +492,24 @@ public class UserService {
             );
         }
 
+        String decryptedOldPassword = EncryptAndDecryptSecurity.decrypt(dto.getOldPassword());
+        String decryptedNewPassword = EncryptAndDecryptSecurity.decrypt(dto.getNewPassword());
+
         User existingUser = userExist.get();
 
-        if (!hashSecurity.compare(
-                dto.getOldPassword(),
-                existingUser.getPassword()
-        )) {
-
-            log.warn("Password update failed - invalid old password - userId: {}", id);
+        if (!hashSecurity.compare(decryptedOldPassword, existingUser.getPassword())) {
 
             throw new AppException(
-                    "Invalid password",
+                    "Old password is incorrect",
                     HttpStatus.UNAUTHORIZED
             );
         }
 
-        passwordHistoryService.assertNotReused(existingUser, dto.getNewPassword());
+        passwordHistoryService.assertNotReused(existingUser, decryptedNewPassword);
 
         passwordHistoryService.record(existingUser, existingUser.getPassword());
 
-        existingUser.setPassword(
-                hashSecurity.hash(dto.getNewPassword())
-        );
+        existingUser.setPassword(hashSecurity.hash(decryptedNewPassword));
 
         existingUser.setChangeCredential(new Date());
 
@@ -604,7 +520,8 @@ public class UserService {
         log.info("Password updated successfully - userId: {}", id);
 
         return Map.of(
-                "message", "Password Changed successfully "
+                "message",
+                "Password Changed successfully"
         );
     }
 
@@ -612,8 +529,7 @@ public class UserService {
 
         log.info("Forget password started - email: {}", dto.getEmail());
 
-        Optional<User> userExist =
-                userRepository.findByEmailAndIsDeletedFalse(dto.getEmail());
+        Optional<User> userExist = userRepository.findByEmailAndIsDeletedFalse(dto.getEmail());
 
         if (userExist.isEmpty()) {
             log.warn("Forget password failed - user not found: {}", dto.getEmail());
@@ -623,6 +539,8 @@ public class UserService {
                     HttpStatus.NOT_FOUND
             );
         }
+
+        String decryptedNewPassword = EncryptAndDecryptSecurity.decrypt(dto.getNewPassword());
 
         User existingUser = userExist.get();
 
@@ -634,10 +552,7 @@ public class UserService {
         );
 
         if (otpExist == null || otpExist.isEmpty()) {
-            log.warn(
-                    "Forget password failed - OTP expired - email: {}",
-                    existingUser.getEmail()
-            );
+            log.warn("Forget password failed - OTP expired - email: {}", existingUser.getEmail());
 
             throw new AppException(
                     "OTP expired or incorrect",
@@ -646,10 +561,7 @@ public class UserService {
         }
 
         if (!hashSecurity.compare(dto.getOtp(), otpExist)) {
-            log.warn(
-                    "Forget password failed - invalid OTP - email: {}",
-                    existingUser.getEmail()
-            );
+            log.warn("Forget password failed - invalid OTP - email: {}", existingUser.getEmail());
 
             throw new AppException(
                     "Invalid OTP",
@@ -659,7 +571,7 @@ public class UserService {
 
         passwordHistoryService.assertNotReused(
                 existingUser,
-                dto.getNewPassword()
+                decryptedNewPassword
         );
 
         passwordHistoryService.record(
@@ -668,7 +580,7 @@ public class UserService {
         );
 
         existingUser.setPassword(
-                hashSecurity.hash(dto.getNewPassword())
+                hashSecurity.hash(decryptedNewPassword)
         );
 
         existingUser.setChangeCredential(new Date());
@@ -684,10 +596,7 @@ public class UserService {
 
         userRepository.save(existingUser);
 
-        log.info(
-                "Password reset successfully - userId: {}",
-                existingUser.getId()
-        );
+        log.info("Password reset successfully - userId: {}", existingUser.getId());
 
         return Map.of(
                 "message",
@@ -778,7 +687,7 @@ public class UserService {
 
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<User> users = userRepository.findAll(pageable);
+        Page<User> users = userRepository.findAllByIsDeletedFalseAndIsConfirmedFalse(pageable);
 
         log.info("Users fetched successfully - count: {}", users.getNumberOfElements());
 
@@ -828,7 +737,7 @@ public class UserService {
 
         log.info("Fetching user - userId: {}", id);
 
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
+        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalseAndIsConfirmedFalse(id);
 
         if (userExist.isEmpty()) {
             log.warn("User not found - userId: {}", id);
@@ -931,4 +840,57 @@ public class UserService {
                 user.getTotalExpense()
         );
     }
+
+    public Map<String, String> addInitialBalance(SetInitialBalance dto, String token) {
+
+        Claims claims = authentication.auth(token, false);
+
+        Long id = claims.get("id", Long.class);
+
+        log.info("Adding initial balance - userId: {}", id);
+
+        User existingUser = userRepository.findByIdAndIsDeletedFalse(id)
+                .orElseThrow(() -> new AppException(
+                        "User not found",
+                        HttpStatus.NOT_FOUND
+                ));
+
+        existingUser.setInitialBalance(dto.getInitialBalance());
+
+        userRepository.save(existingUser);
+
+        log.info("Initial balance added successfully - userId: {}", id);
+
+        return Map.of(
+                "message",
+                "Initial balance added successfully"
+        );
+    }
+
+    public Map<String, String> updateInitialBalance(UpdateBalance dto, String token) {
+
+        Claims claims = authentication.auth(token, false);
+
+        Long id = claims.get("id", Long.class);
+
+        log.info("Updating initial balance - userId: {}", id);
+
+        User existingUser = userRepository.findByIdAndIsDeletedFalse(id)
+                .orElseThrow(() -> new AppException(
+                        "User not found",
+                        HttpStatus.NOT_FOUND
+                ));
+
+        existingUser.setInitialBalance(dto.getNewBalance());
+
+        userRepository.save(existingUser);
+
+        log.info("Initial balance updated successfully - userId: {}", id);
+
+        return Map.of(
+                "message",
+                "Initial balance updated successfully"
+        );
+    }
+
 }

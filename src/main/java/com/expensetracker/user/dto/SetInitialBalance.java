@@ -1,5 +1,6 @@
 package com.expensetracker.user.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -7,9 +8,9 @@ import java.math.BigDecimal;
 
 @Getter
 @AllArgsConstructor
-public class BalanceDto {
+public class SetInitialBalance {
 
-    private BigDecimal balance;
-    private BigDecimal totalIncome;
-    private BigDecimal totalExpense;
+    @NotBlank
+    private BigDecimal initialBalance;
+
 }

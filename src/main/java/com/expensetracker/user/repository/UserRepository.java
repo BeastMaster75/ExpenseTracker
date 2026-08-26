@@ -1,7 +1,11 @@
 package com.expensetracker.user.repository;
 
 import com.expensetracker.user.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -9,4 +13,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByIdAndIsDeletedFalse(Long id);
     Optional<User> findByEmailAndIsDeletedFalse(String email);
     Optional<User> findByEmailVerificationTokenHash(String tokenHash);
+    Page<User> findAllByIsDeletedFalseAndIsConfirmedFalse(Pageable pageable);
+    Optional<User> findByIdAndIsDeletedFalseAndIsConfirmedFalse(Long id);
 }

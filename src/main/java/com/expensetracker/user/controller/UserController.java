@@ -436,4 +436,33 @@ public class UserController {
                 getAccessToken(accessToken)
         );
     }
+
+    // =============================================================
+    // Create initial balance
+    // =============================================================
+    @PostMapping("/initialBalance")
+    public Map<String, String> addInitialBalance(
+            @CookieValue(value = "accessToken", required = false) String accessToken,
+            @Valid @RequestBody SetInitialBalance dto
+    ) {
+        return userService.addInitialBalance(
+                dto,
+                getAccessToken(accessToken)
+        );
+    }
+
+    // =============================================================
+    // Update initial balance
+    // =============================================================
+
+    @PatchMapping("/initialBalance/update")
+    public Map<String, String> updateInitialBalance(
+            @CookieValue(value = "accessToken", required = true) String accessToken,
+            @Valid @RequestBody UpdateBalance dto
+    ) {
+        return userService.updateInitialBalance(
+                dto,
+                getAccessToken(accessToken)
+        );
+    }
 }

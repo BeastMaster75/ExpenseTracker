@@ -41,6 +41,8 @@ public class User {
 
     private BigDecimal balance = BigDecimal.ZERO;
 
+    private BigDecimal initialBalance = BigDecimal.ZERO;
+
     private BigDecimal totalIncome = BigDecimal.ZERO;
 
     private BigDecimal totalExpense = BigDecimal.ZERO;

@@ -37,10 +37,7 @@ public class ReportService {
     private final Authentication authentication;
 
     @Transactional
-    public ReportResponse createReport(
-            CreateReportDto dto,
-            String token
-    ) {
+    public ReportResponse createReport(CreateReportDto dto,String token) {
         Claims claims = authentication.auth(token, false);
         Long userId = claims.get("id", Long.class);
 
@@ -60,34 +57,15 @@ public class ReportService {
         }
 
 
-        LocalDateTime startDateTime = month
-                .atDay(1)
-                .atStartOfDay();
+        LocalDateTime startDateTime = month.atDay(1).atStartOfDay();
 
-        LocalDateTime endDateTime = month
-                .plusMonths(1)
-                .atDay(1)
-                .atStartOfDay();
+        LocalDateTime endDateTime = month.plusMonths(1).atDay(1).atStartOfDay();
 
-        Date from = Date.from(
-                startDateTime
-                        .atZone(ZoneId.systemDefault())
-                        .toInstant()
-        );
+        Date from = Date.from(startDateTime.atZone(ZoneId.systemDefault()).toInstant());
 
-        Date to = Date.from(
-                endDateTime
-                        .atZone(ZoneId.systemDefault())
-                        .toInstant()
-        );
+        Date to = Date.from(endDateTime.atZone(ZoneId.systemDefault()).toInstant());
 
-        List<Transaction> transactions =
-                transactionRepository
-                        .findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanAndIsDeletedFalse(
-                                userId,
-                                from,
-                                to
-                        );
+        List<Transaction> transactions = transactionRepository.findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanAndIsDeletedFalse(userId, from, to);
 
         BigDecimal totalIncome = transactions.stream()
                 .filter(transaction ->
@@ -204,15 +182,10 @@ public class ReportService {
 
         try {
 
-            yearMonth =
-                    YearMonth.parse(month);
+            yearMonth = YearMonth.parse(month);
 
         } catch (Exception e) {
-
-            throw new AppException(
-                    "Invalid month format. Use yyyy-MM",
-                    HttpStatus.BAD_REQUEST
-            );
+            throw new AppException("Invalid month format. Use yyyy-MM", HttpStatus.BAD_REQUEST);
         }
 
         // =========================
@@ -233,45 +206,23 @@ public class ReportService {
         // =========================
 
         LocalDateTime startDateTime =
-                yearMonth
-                        .atDay(1)
-                        .atStartOfDay();
+                yearMonth.atDay(1).atStartOfDay();
 
         LocalDateTime endDateTime =
-                yearMonth
-                        .plusMonths(1)
-                        .atDay(1)
-                        .atStartOfDay();
+                yearMonth.plusMonths(1).atDay(1).atStartOfDay();
 
         Date from =
-                Date.from(
-                        startDateTime
-                                .atZone(
-                                        ZoneId.systemDefault()
-                                )
-                                .toInstant()
-                );
+                Date.from(startDateTime.atZone(ZoneId.systemDefault()).toInstant());
 
         Date to =
-                Date.from(
-                        endDateTime
-                                .atZone(
-                                        ZoneId.systemDefault()
-                                )
-                                .toInstant()
-                );
+                Date.from(endDateTime.atZone(ZoneId.systemDefault()).toInstant());
 
         // =========================
         // Get transactions
         // =========================
 
         List<Transaction> transactions =
-                transactionRepository
-                        .findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanAndIsDeletedFalse(
-                                userId,
-                                from,
-                                to
-                        );
+                transactionRepository.findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanAndIsDeletedFalse(userId, from, to);
 
         // =========================
         // Calculate totals
@@ -279,11 +230,7 @@ public class ReportService {
 
         BigDecimal totalIncome =
                 transactions.stream()
-                        .filter(transaction ->
-                                "INCOME".equalsIgnoreCase(
-                                        transaction.getType()
-                                )
-                        )
+                        .filter(transaction -> "INCOME".equalsIgnoreCase(transaction.getType()))
                         .map(Transaction::getAmount)
                         .reduce(
                                 BigDecimal.ZERO,

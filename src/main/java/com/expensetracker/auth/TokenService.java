@@ -18,6 +18,8 @@ public class TokenService {
 
     private static final long ACCESS_TOKEN_TTL = 3 * 60 * 1000L;
 
+    private static final long OTP_TOKEN_TTL = 20 * 60 * 1000L;
+
     private static final long REFRESH_TOKEN_TTL = 7L * 24 * 60 * 60 * 1000;
 
     @Value("${jwt.access-secret}")
@@ -25,6 +27,9 @@ public class TokenService {
 
     @Value("${jwt.refresh-secret}")
     private String refreshSecret;
+
+    @Value("${jwt.otp-secret}")
+    private String otpSecret;
 
     public String generateToken(
             Map<String, Object> claims,
@@ -68,6 +73,20 @@ public class TokenService {
                 refreshSecret
         );
     }
+
+    public String generateOtpToken(User user) {
+
+        return generateToken(
+                Map.of(
+                        "id", user.getId(),
+                        "email", user.getEmail()
+                ),
+                OTP_TOKEN_TTL,
+                otpSecret
+        );
+    }
+
+
 
     public Claims verifyToken(String token, String secret) {
 

@@ -8,7 +8,7 @@ public class EncryptionTest {
 
     public static void main(String[] args) {
 
-        String password = "Mohamed1234567@";
+        String password = "Mohamed123450@";
 
         String encrypted =
                 EncryptAndDecryptSecurity.encrypt(password);
