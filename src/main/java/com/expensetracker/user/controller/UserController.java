@@ -334,16 +334,39 @@ public class UserController {
     }
 
     // =========================================================
+    // Verify Otp
+    // =========================================================
+
+
+    @PostMapping("/verifyForgetPasswordOtp")
+    public Map<String, String> verifyForgetPasswordOtp(
+            @Valid @RequestBody VerifyOtpDto dto
+    ) {
+
+        return userService.verifyForgetPasswordOtp(dto);
+    }
+
+    // =========================================================
     // Reset Password
     // =========================================================
 
     @PatchMapping("/resetPassword")
-    public Map<String, String> forgetPassword(
-            @Valid @RequestBody ForgetPasswordDto dto
+    public Map<String, String> resetPassword(
+            @Valid @RequestBody ResetPasswordDto dto
     ) {
 
-        return userService.forgetPassword(dto);
+        return userService.resetPassword(dto);
     }
+
+
+
+//    @PatchMapping("/resetPassword")
+//    public Map<String, String> forgetPassword(
+//            @Valid @RequestBody ForgetPasswordDto dto
+//    ) {
+//
+//        return userService.forgetPassword(dto);
+//    }
 
     // =========================================================
     // Resend Forget Password OTP

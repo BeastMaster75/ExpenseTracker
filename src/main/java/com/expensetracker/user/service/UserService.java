@@ -525,34 +525,126 @@ public class UserService {
         );
     }
 
-    public Map<String, String> forgetPassword(ForgetPasswordDto dto) {
+//    public Map<String, String> forgetPassword(ForgetPasswordDto dto) {
+//
+//        log.info("Forget password started - email: {}", dto.getEmail());
+//
+//        Optional<User> userExist = userRepository.findByEmailAndIsDeletedFalse(dto.getEmail());
+//
+//        if (userExist.isEmpty()) {
+//            log.warn("Forget password failed - user not found: {}", dto.getEmail());
+//
+//            throw new AppException(
+//                    "User not found",
+//                    HttpStatus.NOT_FOUND
+//            );
+//        }
+//
+//        String decryptedNewPassword = EncryptAndDecryptSecurity.decrypt(dto.getNewPassword());
+//
+//        User existingUser = userExist.get();
+//
+//        String otpExist = redisService.get(
+//                redisService.otpKey(
+//                        existingUser.getEmail(),
+//                        FORGET_PASSWORD_TYPE
+//                )
+//        );
+//
+//        if (otpExist == null || otpExist.isEmpty()) {
+//            log.warn("Forget password failed - OTP expired - email: {}", existingUser.getEmail());
+//
+//            throw new AppException(
+//                    "OTP expired or incorrect",
+//                    HttpStatus.BAD_REQUEST
+//            );
+//        }
+//
+//        if (!hashSecurity.compare(dto.getOtp(), otpExist)) {
+//            log.warn("Forget password failed - invalid OTP - email: {}", existingUser.getEmail());
+//
+//            throw new AppException(
+//                    "Invalid OTP",
+//                    HttpStatus.UNAUTHORIZED
+//            );
+//        }
+//
+//        passwordHistoryService.assertNotReused(
+//                existingUser,
+//                decryptedNewPassword
+//        );
+//
+//        passwordHistoryService.record(
+//                existingUser,
+//                existingUser.getPassword()
+//        );
+//
+//        existingUser.setPassword(
+//                hashSecurity.hash(decryptedNewPassword)
+//        );
+//
+//        existingUser.setChangeCredential(new Date());
+//
+//        redisService.delete(ALL_USERS_KEY);
+//
+//        redisService.delete(
+//                redisService.otpKey(
+//                        existingUser.getEmail(),
+//                        FORGET_PASSWORD_TYPE
+//                )
+//        );
+//
+//        userRepository.save(existingUser);
+//
+//        log.info("Password reset successfully - userId: {}", existingUser.getId());
+//
+//        return Map.of(
+//                "message",
+//                "Password changed successfully"
+//        );
+//    }
 
-        log.info("Forget password started - email: {}", dto.getEmail());
+    @Value("${jwt.otp-secret}")
+    private String otpSecret;
+    public Map<String, String> verifyForgetPasswordOtp(
+            VerifyOtpDto dto
+    ) {
 
-        Optional<User> userExist = userRepository.findByEmailAndIsDeletedFalse(dto.getEmail());
-
-        if (userExist.isEmpty()) {
-            log.warn("Forget password failed - user not found: {}", dto.getEmail());
-
-            throw new AppException(
-                    "User not found",
-                    HttpStatus.NOT_FOUND
-            );
-        }
-
-        String decryptedNewPassword = EncryptAndDecryptSecurity.decrypt(dto.getNewPassword());
-
-        User existingUser = userExist.get();
-
-        String otpExist = redisService.get(
-                redisService.otpKey(
-                        existingUser.getEmail(),
-                        FORGET_PASSWORD_TYPE
-                )
+        log.info(
+                "Verify forget password OTP started - email: {}",
+                dto.getEmail()
         );
 
+        User existingUser =
+                userRepository
+                        .findByEmailAndIsDeletedFalse(dto.getEmail())
+                        .orElseThrow(() -> {
+
+                            log.warn(
+                                    "Verify OTP failed - user not found: {}",
+                                    dto.getEmail()
+                            );
+
+                            return new AppException(
+                                    "User not found",
+                                    HttpStatus.NOT_FOUND
+                            );
+                        });
+
+        String otpExist =
+                redisService.get(
+                        redisService.otpKey(
+                                existingUser.getEmail(),
+                                FORGET_PASSWORD_TYPE
+                        )
+                );
+
         if (otpExist == null || otpExist.isEmpty()) {
-            log.warn("Forget password failed - OTP expired - email: {}", existingUser.getEmail());
+
+            log.warn(
+                    "Verify OTP failed - OTP expired - email: {}",
+                    existingUser.getEmail()
+            );
 
             throw new AppException(
                     "OTP expired or incorrect",
@@ -561,7 +653,11 @@ public class UserService {
         }
 
         if (!hashSecurity.compare(dto.getOtp(), otpExist)) {
-            log.warn("Forget password failed - invalid OTP - email: {}", existingUser.getEmail());
+
+            log.warn(
+                    "Verify OTP failed - invalid OTP - email: {}",
+                    existingUser.getEmail()
+            );
 
             throw new AppException(
                     "Invalid OTP",
@@ -569,23 +665,9 @@ public class UserService {
             );
         }
 
-        passwordHistoryService.assertNotReused(
-                existingUser,
-                decryptedNewPassword
-        );
 
-        passwordHistoryService.record(
-                existingUser,
-                existingUser.getPassword()
-        );
-
-        existingUser.setPassword(
-                hashSecurity.hash(decryptedNewPassword)
-        );
-
-        existingUser.setChangeCredential(new Date());
-
-        redisService.delete(ALL_USERS_KEY);
+        String otpToken =
+                tokenService.generateOtpToken(existingUser);
 
         redisService.delete(
                 redisService.otpKey(
@@ -594,15 +676,109 @@ public class UserService {
                 )
         );
 
+        log.info(
+                "Forget password OTP verified successfully - userId: {}",
+                existingUser.getId()
+        );
+
+        return Map.of(
+                "message",
+                "OTP verified successfully",
+                "otpToken",
+                otpToken
+        );
+    }
+
+
+    public Map<String, String> resetPassword(
+            ResetPasswordDto dto
+    ) {
+
+        log.info("Reset password started");
+
+        Claims claims;
+
+        try {
+
+//            String otpSecret = "";
+            claims =
+                    tokenService.verifyToken(
+                            dto.getOtpToken(),
+                            otpSecret
+                    );
+
+        } catch (Exception e) {
+
+            log.warn(
+                    "Reset password failed - invalid or expired OTP token"
+            );
+
+            throw new AppException(
+                    "Invalid or expired OTP token",
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
+
+        Long userId =
+                claims.get(
+                        "id",
+                        Long.class
+                );
+
+        User existingUser =
+                userRepository
+                        .findByIdAndIsDeletedFalse(userId)
+                        .orElseThrow(() -> {
+
+                            log.warn(
+                                    "Reset password failed - user not found: {}",
+                                    userId
+                            );
+
+                            return new AppException(
+                                    "User not found",
+                                    HttpStatus.NOT_FOUND
+                            );
+                        });
+
+        passwordHistoryService.assertNotReused(
+                existingUser,
+                dto.getNewPassword()
+        );
+
+        passwordHistoryService.record(
+                existingUser,
+                existingUser.getPassword()
+        );
+
+        existingUser.setPassword(
+                hashSecurity.hash(
+                        dto.getNewPassword()
+                )
+        );
+
+        existingUser.setChangeCredential(
+                new Date()
+        );
+
+        redisService.delete(
+                ALL_USERS_KEY
+        );
+
         userRepository.save(existingUser);
 
-        log.info("Password reset successfully - userId: {}", existingUser.getId());
+        log.info(
+                "Password reset successfully - userId: {}",
+                existingUser.getId()
+        );
 
         return Map.of(
                 "message",
                 "Password changed successfully"
         );
     }
+
+
 
     public Map<String, String> resendForgetPasswordOtp(ResendOtpDto dto) {
 
