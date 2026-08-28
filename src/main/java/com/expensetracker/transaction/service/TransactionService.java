@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.Locale;
 
 @Service
 public class TransactionService {
@@ -30,6 +31,8 @@ public class TransactionService {
 
     private static final String INCOME = "income";
     private static final String EXPENSE = "expense";
+
+    private static final long DAY_MS = 24L * 60 * 60 * 1000;
 
     private final TransactionRepository transactionRepository;
     private final BudgetRepository budgetRepository;
@@ -58,8 +61,6 @@ public class TransactionService {
                 .orElseThrow(() -> new AppException("User not exist", HttpStatus.NOT_FOUND));
     }
 
-    // Someone else's transaction reports 404, not 403, so the endpoint does not
-    // leak which ids exist.
     private Transaction ownedTransaction(Long id, Long userId) {
 
         Transaction tx = transactionRepository.findById(id)
@@ -88,21 +89,26 @@ public class TransactionService {
     private Budget resolveBudget(Long userId, String budgetName) {
 
         if (budgetName == null || budgetName.isBlank()) {
-            throw new AppException("Budget must be selected for an expense", HttpStatus.BAD_REQUEST);
+            throw new AppException("Budget must be selected", HttpStatus.BAD_REQUEST);
         }
 
-        // Scoped to the caller so one user cannot spend against another's budget.
         return budgetRepository.findByUserIdAndNameAndDeletedFalse(userId, budgetName)
                 .orElseThrow(() -> new AppException("Budget not exist", HttpStatus.NOT_FOUND));
     }
 
-    // Adds a transaction's figures to the owning user and budget.
     private void apply(Transaction tx, User user) {
+
+        Budget budget = tx.getBudget();
 
         if (INCOME.equals(tx.getType())) {
 
             user.setBalance(user.getBalance().add(tx.getAmount()));
             user.setTotalIncome(user.getTotalIncome().add(tx.getAmount()));
+
+            if (budget != null) {
+                budget.setAmountLimit(budget.getAmountLimit().add(tx.getAmount()));
+                budgetRepository.save(budget);
+            }
 
             return;
         }
@@ -110,22 +116,25 @@ public class TransactionService {
         user.setBalance(user.getBalance().subtract(tx.getAmount()));
         user.setTotalExpense(user.getTotalExpense().add(tx.getAmount()));
 
-        Budget budget = tx.getBudget();
-
-        budget.setSpending(budget.getSpending().add(tx.getAmount()));
-
-        budgetRepository.save(budget);
+        if (budget != null) {
+            budget.setSpending(budget.getSpending().add(tx.getAmount()));
+            budgetRepository.save(budget);
+        }
     }
 
-    // Exact inverse of apply. Update and delete unwind the old figures through
-    // this before anything new is applied, so balance, totals and budget
-    // spending can never drift out of step with the transaction rows.
     private void reverse(Transaction tx, User user) {
+
+        Budget budget = tx.getBudget();
 
         if (INCOME.equals(tx.getType())) {
 
             user.setBalance(user.getBalance().subtract(tx.getAmount()));
             user.setTotalIncome(user.getTotalIncome().subtract(tx.getAmount()));
+
+            if (budget != null) {
+                budget.setAmountLimit(budget.getAmountLimit().subtract(tx.getAmount()));
+                budgetRepository.save(budget);
+            }
 
             return;
         }
@@ -133,22 +142,26 @@ public class TransactionService {
         user.setBalance(user.getBalance().add(tx.getAmount()));
         user.setTotalExpense(user.getTotalExpense().subtract(tx.getAmount()));
 
-        Budget budget = tx.getBudget();
-
         if (budget != null) {
             budget.setSpending(budget.getSpending().subtract(tx.getAmount()));
             budgetRepository.save(budget);
         }
     }
 
-    // Checked once, after the figures settle, so it catches every route to a
-    // negative balance: a too-large expense, an update that grows one, and
-    // deleting income that has already been spent. Throwing rolls the whole
-    // transaction back.
     private void assertBalanceNotNegative(User user) {
 
         if (user.getBalance().signum() < 0) {
             throw new AppException("Insufficient balance", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private void assertBudgetLimitNotNegative(Budget budget) {
+
+        if (budget != null && budget.getAmountLimit().signum() < 0) {
+            throw new AppException(
+                    "Budget limit cannot go negative -- raise the budget limit first",
+                    HttpStatus.BAD_REQUEST
+            );
         }
     }
 
@@ -171,14 +184,12 @@ public class TransactionService {
         tx.setDescription(dto.getDescription() != null ? dto.getDescription() : "");
         tx.setCreatedAt(dto.getCreatedAt() != null ? dto.getCreatedAt() : new Date());
         tx.setUpdatedAt(new Date());
-
-        if (EXPENSE.equals(type)) {
-            tx.setBudget(resolveBudget(userId, dto.getBudgetName()));
-        }
+        tx.setBudget(resolveBudget(userId, dto.getBudgetName()));
 
         apply(tx, user);
 
         assertBalanceNotNegative(user);
+        assertBudgetLimitNotNegative(tx.getBudget());
 
         userRepository.save(user);
 
@@ -198,8 +209,8 @@ public class TransactionService {
 
         Transaction tx = ownedTransaction(id, userId);
 
-        // Unwind the old figures first -- against the old budget, before any
-        // reassignment below.
+        Budget previousBudget = tx.getBudget();
+
         reverse(tx, user);
 
         if (dto.getAmount() != null) {
@@ -218,24 +229,18 @@ public class TransactionService {
             tx.setType(normaliseType(dto.getTransactionType()));
         }
 
-        if (EXPENSE.equals(tx.getType())) {
+        if (dto.getBudgetName() != null) {
+            tx.setBudget(resolveBudget(userId, dto.getBudgetName()));
 
-            if (dto.getBudgetName() != null) {
-                tx.setBudget(resolveBudget(userId, dto.getBudgetName()));
-
-            } else if (tx.getBudget() == null) {
-                // switched from income and no budget named
-                throw new AppException("Budget must be selected for an expense", HttpStatus.BAD_REQUEST);
-            }
-
-        } else {
-            // income is never tied to a budget
-            tx.setBudget(null);
+        } else if (tx.getBudget() == null) {
+            throw new AppException("Budget must be selected", HttpStatus.BAD_REQUEST);
         }
 
         apply(tx, user);
 
         assertBalanceNotNegative(user);
+        assertBudgetLimitNotNegative(previousBudget);
+        assertBudgetLimitNotNegative(tx.getBudget());
 
         tx.setUpdatedAt(new Date());
 
@@ -266,10 +271,10 @@ public class TransactionService {
 
         Transaction tx = ownedTransaction(id, userId);
 
-        // Removing a transaction has to give back whatever it took.
         reverse(tx, user);
 
         assertBalanceNotNegative(user);
+        assertBudgetLimitNotNegative(tx.getBudget());
 
         userRepository.save(user);
 
@@ -278,25 +283,18 @@ public class TransactionService {
         log.info("Transaction deleted successfully - id: {}, userId: {}", id, userId);
     }
 
-    public Page<Transaction> getTransactions(
-            Long userId,
-            String range,
-            int page,
-            int size
-    ) {
+    public Page<Transaction> getTransactions(Long userId, String range, int page, int size) {
+
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
 
         Date now = new Date();
 
-        Date from = null;
-
-        if (range.equalsIgnoreCase("last_day")) {
-            from = new Date(now.getTime() - (24L * 60 * 60 * 1000));
-        } else if (range.equalsIgnoreCase("last_week")) {
-            from = new Date(now.getTime() - (7L * 24 * 60 * 60 * 1000));
-        } else if (range.equalsIgnoreCase("last_month")) {
-            from = new Date(now.getTime() - (30L * 24 * 60 * 60 * 1000));
-        }
+        Date from = switch (range.toLowerCase(Locale.ROOT)) {
+            case "last_day" -> new Date(now.getTime() - DAY_MS);
+            case "last_week" -> new Date(now.getTime() - (7 * DAY_MS));
+            case "last_month" -> new Date(now.getTime() - (30 * DAY_MS));
+            default -> null;
+        };
 
         if (from == null) {
             return transactionRepository.findByUserId(userId, pageable);

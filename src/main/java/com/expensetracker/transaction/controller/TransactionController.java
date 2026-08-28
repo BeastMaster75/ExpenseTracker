@@ -27,191 +27,62 @@ public class TransactionController {
         this.authentication = authentication;
     }
 
-    // =========================================================
-    // Get Access Token from Cookie
-    // =========================================================
-
     private String getAccessToken(String accessToken) {
 
         if (accessToken == null || accessToken.isBlank()) {
-
-            throw new AppException(
-                    "Access token is required",
-                    HttpStatus.UNAUTHORIZED
-            );
+            throw new AppException("Access token is required", HttpStatus.UNAUTHORIZED);
         }
 
         return accessToken;
     }
 
-    // =========================================================
-    // Get User ID from Access Token
-    // =========================================================
-
     private Long getUserId(String token) {
-
-        Claims claims =
-                authentication.auth(
-                        token,
-                        false
-                );
-
-        return claims.get(
-                "id",
-                Long.class
-        );
+        Claims claims = authentication.auth(token, false);
+        return claims.get("id", Long.class);
     }
-
-    // =========================================================
-    // Create Transaction
-    // =========================================================
 
     @PostMapping
     public Transaction createTransaction(
-
-            @Valid
-            @RequestBody
-            CreateTransactionDto transaction,
-
-            @CookieValue(
-                    value = "accessToken",
-                    required = false
-            )
-            String accessToken
+            @Valid @RequestBody CreateTransactionDto transaction,
+            @CookieValue(value = "accessToken", required = false) String accessToken
     ) {
-
-        String token =
-                getAccessToken(accessToken);
-
-        return transactionService.createTransaction(
-                transaction,
-                token
-        );
+        return transactionService.createTransaction(transaction, getAccessToken(accessToken));
     }
-
-    // =========================================================
-    // Update Transaction
-    // =========================================================
 
     @PatchMapping("/{id}")
     public Transaction updateTransaction(
-
-            @PathVariable
-            Long id,
-
-            @Valid
-            @RequestBody
-            UpdateTransactionDto dto,
-
-            @CookieValue(
-                    value = "accessToken",
-                    required = false
-            )
-            String accessToken
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateTransactionDto dto,
+            @CookieValue(value = "accessToken", required = false) String accessToken
     ) {
-
-        String token =
-                getAccessToken(accessToken);
-
-        return transactionService.updateTransaction(
-                id,
-                dto,
-                token
-        );
+        return transactionService.updateTransaction(id, dto, getAccessToken(accessToken));
     }
-
-    // =========================================================
-    // Get Transaction By ID
-    // =========================================================
 
     @GetMapping("/{id}")
     public Transaction getTransactionById(
-
-            @PathVariable
-            Long id,
-
-            @CookieValue(
-                    value = "accessToken",
-                    required = false
-            )
-            String accessToken
+            @PathVariable Long id,
+            @CookieValue(value = "accessToken", required = false) String accessToken
     ) {
-
-        String token =
-                getAccessToken(accessToken);
-
-        return transactionService.getTransactionById(
-                id,
-                token
-        );
+        return transactionService.getTransactionById(id, getAccessToken(accessToken));
     }
-
-    // =========================================================
-    // Delete Transaction
-    // =========================================================
 
     @DeleteMapping("/{id}")
     public void deleteTransaction(
-
-            @PathVariable
-            Long id,
-
-            @CookieValue(
-                    value = "accessToken",
-                    required = false
-            )
-            String accessToken
+            @PathVariable Long id,
+            @CookieValue(value = "accessToken", required = false) String accessToken
     ) {
-
-        String token =
-                getAccessToken(accessToken);
-
-        transactionService.deleteTransaction(
-                id,
-                token
-        );
+        transactionService.deleteTransaction(id, getAccessToken(accessToken));
     }
-
-    // =========================================================
-    // Get Transactions
-    // =========================================================
 
     @GetMapping
     public Page<Transaction> getTransactions(
-
-            @RequestParam(
-                    defaultValue = "last_month"
-            )
-            String range,
-
-            @RequestParam(
-                    defaultValue = "0"
-            )
-            int page,
-
-            @RequestParam(
-                    defaultValue = "10"
-            )
-            int size,
-
-            @CookieValue(
-                    value = "accessToken",
-                    required = false
-            )
-            String accessToken
+            @RequestParam(defaultValue = "last_month") String range,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @CookieValue(value = "accessToken", required = false) String accessToken
     ) {
+        String token = getAccessToken(accessToken);
 
-        String token =
-                getAccessToken(accessToken);
-
-        Long userId =
-                getUserId(token);
-
-        return transactionService.getTransactions(
-                userId,
-                range,
-                page,
-                size
-        );
+        return transactionService.getTransactions(getUserId(token), range, page, size);
     }
 }
