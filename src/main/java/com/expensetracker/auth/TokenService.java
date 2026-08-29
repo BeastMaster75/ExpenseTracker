@@ -16,7 +16,7 @@ import java.util.UUID;
 @Service
 public class TokenService {
 
-    private static final long ACCESS_TOKEN_TTL = 3 * 60 * 1000L;
+    private static final long ACCESS_TOKEN_TTL = 30 * 60 * 1000L;
 
     private static final long OTP_TOKEN_TTL = 20 * 60 * 1000L;
 
