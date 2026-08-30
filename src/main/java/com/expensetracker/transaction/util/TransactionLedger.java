@@ -33,8 +33,10 @@ public class TransactionLedger {
             log.info("Applied income {} - userId: {}, balance: {} -> {}, totalIncome: {}",
                     tx.getAmount(), user.getId(), before, user.getBalance(), user.getTotalIncome());
 
-            // Income funds the budget it was booked against.
-            addToLimit(tx.getBudget(), tx.getAmount());
+            // Income funds the budget it was booked against. It raises that
+            // budget's available-to-use, never its configured limit, so the
+            // top-up expires with the monthly reset.
+            addToAvailable(tx.getBudget(), tx.getAmount());
 
             return;
         }
@@ -60,7 +62,7 @@ public class TransactionLedger {
             log.info("Reversed income {} - userId: {}, balance: {} -> {}, totalIncome: {}",
                     tx.getAmount(), user.getId(), before, user.getBalance(), user.getTotalIncome());
 
-            addToLimit(tx.getBudget(), tx.getAmount().negate());
+            addToAvailable(tx.getBudget(), tx.getAmount().negate());
 
             return;
         }
@@ -74,20 +76,20 @@ public class TransactionLedger {
         addToSpending(tx.getBudget(), tx.getAmount().negate());
     }
 
-    private void addToLimit(Budget budget, BigDecimal delta) {
+    private void addToAvailable(Budget budget, BigDecimal delta) {
 
         if (budget == null) {
             return;
         }
 
-        BigDecimal before = budget.getAmountLimit();
+        BigDecimal before = budget.getAvailableToUse();
 
-        budget.setAmountLimit(before.add(delta));
+        budget.setAvailableToUse(before.add(delta));
 
         budgetRepository.save(budget);
 
-        log.info("Budget limit changed - id: {}, name: {}, {} -> {} (delta {})",
-                budget.getId(), budget.getName(), before, budget.getAmountLimit(), delta);
+        log.info("Budget available-to-use changed - id: {}, name: {}, {} -> {} (delta {})",
+                budget.getId(), budget.getName(), before, budget.getAvailableToUse(), delta);
     }
 
     private void addToSpending(Budget budget, BigDecimal delta) {

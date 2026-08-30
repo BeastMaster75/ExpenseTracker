@@ -15,12 +15,16 @@ public class BudgetSummaryDto {
     private BigDecimal totalLimit;
     private BigDecimal totalSpending;
 
-    // totalLimit - totalSpending. Goes negative once the caller overspends,
-    // which the card needs in order to show an over-budget state.
+    // Income booked against these budgets this month. Added to totalLimit to
+    // get the ceiling the figures below are measured against.
+    private BigDecimal totalAvailableToUse;
+
+    // (totalLimit + totalAvailableToUse) - totalSpending.
     private BigDecimal remaining;
 
-    // totalSpending as a percentage of totalLimit, two decimal places.
-    // Zero when there is nothing budgeted, and free to exceed 100.
+    // totalSpending as a percentage of the ceiling, two decimal places. Zero
+    // when there is nothing budgeted; capped at 100 in practice now that
+    // spending past a budget's ceiling is rejected.
     private BigDecimal percentageUsed;
 
     private long budgetCount;

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 
+import java.math.BigDecimal;
 import java.util.Date;
 
 public final class TransactionUtils {
@@ -63,15 +64,42 @@ public final class TransactionUtils {
         }
     }
 
-    public static void assertBudgetLimitNotNegative(Budget budget) {
+    // Unwinding an income takes its top-up back out. If that top-up has since
+    // been spent or moved, the budget cannot give it back.
+    public static void assertAvailableToUseNotNegative(Budget budget) {
 
-        if (budget != null && MoneyUtils.isNegative(budget.getAmountLimit())) {
+        if (budget != null && MoneyUtils.isNegative(budget.getAvailableToUse())) {
 
-            log.warn("Rejected - budget limit would go negative - id: {}, name: {}, limit: {}",
-                    budget.getId(), budget.getName(), budget.getAmountLimit());
+            log.warn("Rejected - available-to-use would go negative - id: {}, name: {}, available: {}",
+                    budget.getId(), budget.getName(), budget.getAvailableToUse());
 
             throw new AppException(
-                    "Budget limit cannot go negative -- raise the budget limit first",
+                    "That income has already been used by this budget and cannot be removed",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    // A budget may never be spent past 100% of its ceiling, which is its
+    // configured limit plus whatever income topped it up this month.
+    public static void assertWithinSpendingCeiling(Budget budget) {
+
+        if (budget == null) {
+            return;
+        }
+
+        BigDecimal spending = MoneyUtils.orZero(budget.getSpending());
+        BigDecimal ceiling = budget.getSpendingCeiling();
+
+        if (spending.compareTo(ceiling) > 0) {
+
+            log.warn("Rejected - budget would exceed 100% - id: {}, name: {}, spending: {}, ceiling: {}",
+                    budget.getId(), budget.getName(), spending, ceiling);
+
+            throw new AppException(
+                    "Budget '" + budget.getName() + "' would be over its limit: "
+                            + spending + " of " + ceiling
+                            + ". Raise the limit or add income to this budget first.",
                     HttpStatus.BAD_REQUEST
             );
         }

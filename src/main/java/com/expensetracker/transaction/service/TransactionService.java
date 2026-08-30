@@ -72,7 +72,8 @@ public class TransactionService {
         ledger.apply(tx, user);
 
         TransactionUtils.assertBalanceNotNegative(user);
-        TransactionUtils.assertBudgetLimitNotNegative(tx.getBudget());
+        TransactionUtils.assertAvailableToUseNotNegative(tx.getBudget());
+        TransactionUtils.assertWithinSpendingCeiling(tx.getBudget());
 
         userRepository.save(user);
 
@@ -135,8 +136,13 @@ public class TransactionService {
         ledger.apply(tx, user);
 
         TransactionUtils.assertBalanceNotNegative(user);
-        TransactionUtils.assertBudgetLimitNotNegative(previousBudget);
-        TransactionUtils.assertBudgetLimitNotNegative(tx.getBudget());
+
+        // Both sides of a move: the budget the transaction came off, and the
+        // one it landed on.
+        TransactionUtils.assertAvailableToUseNotNegative(previousBudget);
+        TransactionUtils.assertAvailableToUseNotNegative(tx.getBudget());
+        TransactionUtils.assertWithinSpendingCeiling(previousBudget);
+        TransactionUtils.assertWithinSpendingCeiling(tx.getBudget());
 
         tx.setUpdatedAt(new Date());
 
@@ -224,7 +230,8 @@ public class TransactionService {
         ledger.reverse(tx, user);
 
         TransactionUtils.assertBalanceNotNegative(user);
-        TransactionUtils.assertBudgetLimitNotNegative(tx.getBudget());
+        TransactionUtils.assertAvailableToUseNotNegative(tx.getBudget());
+        TransactionUtils.assertWithinSpendingCeiling(tx.getBudget());
 
         userRepository.save(user);
 

@@ -164,12 +164,31 @@ class BudgetFlowTest {
                 .as("login should set an accessToken cookie")
                 .isNotNull();
 
+        setInitialBalance(email, STARTING_BALANCE);
+
         return accessToken.getValue();
     }
 
-    // Income is booked against a budget and tops up its limit, so funding is
-    // parked in a dedicated "Salary" budget. That keeps the limit of whichever
-    // budget a test is actually asserting on untouched.
+    // Budgets are now capped by initialBalance + income, so a probe user needs
+    // an opening balance before any of these limits are allowed.
+    //
+    // Written straight to the row rather than through POST /users/initialBalance
+    // because SetInitialBalance puts @NotBlank on a BigDecimal, which has no
+    // validator for that type.
+    private static final String STARTING_BALANCE = "100000";
+
+    private void setInitialBalance(String email, String amount) {
+
+        User user = userRepository.findByEmail(email).orElseThrow();
+
+        user.setInitialBalance(new BigDecimal(amount));
+
+        userRepository.save(user);
+    }
+
+    // Income is booked against a budget and tops up its available-to-use, so
+    // funding is parked in a dedicated "Salary" budget. That keeps the figures
+    // of whichever budget a test is actually asserting on untouched.
     private static final String SALARY = "Salary";
 
     private void fund(String token, String amount) throws Exception {
@@ -470,17 +489,20 @@ class BudgetFlowTest {
         createBudget(token, "Groceries", "4000");
         createBudget(token, "Transport", "1000");
 
-        // income tops up the Salary budget's limit: 0 -> 5000
+        // income tops up the Salary budget's available-to-use: 0 -> 5000. Its
+        // configured limit stays at 0.
         fund(token, "5000");
 
         spend(token, "1000", "Groceries");
         spend(token, "250", "Transport");
 
-        // 4000 + 1000 + 5000 budgeted, 1250 spent -> 12.50% used, 8750 left
+        // 5000 configured + 5000 from income = 10000 ceiling, 1250 spent
+        // -> 12.50% used, 8750 left
         mockMvc.perform(get("/budgets/summary")
                         .cookie(new Cookie("accessToken", token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalLimit").value(10000))
+                .andExpect(jsonPath("$.totalLimit").value(5000))
+                .andExpect(jsonPath("$.totalAvailableToUse").value(5000))
                 .andExpect(jsonPath("$.totalSpending").value(1250))
                 .andExpect(jsonPath("$.remaining").value(8750))
                 .andExpect(jsonPath("$.percentageUsed").value(12.50))
@@ -504,11 +526,13 @@ class BudgetFlowTest {
                                 + "'budgetName':'Groceries'}")))
                 .andExpect(status().isOk());
 
-        // the user-set limit is the opening figure; income raises it
+        // the configured limit is static; income lands in availableToUse and
+        // raises the ceiling the budget is measured against
         mockMvc.perform(get("/budgets/" + budgetId)
                         .cookie(new Cookie("accessToken", token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.amountLimit").value(1000))
+                .andExpect(jsonPath("$.amountLimit").value(400))
+                .andExpect(jsonPath("$.availableToUse").value(600))
                 .andExpect(jsonPath("$.spending").value(0))
                 .andExpect(jsonPath("$.remaining").value(1000));
 
@@ -540,11 +564,13 @@ class BudgetFlowTest {
                         .cookie(new Cookie("accessToken", token)))
                 .andExpect(status().isOk());
 
-        // back to the opening figure the user set
+        // the top-up is gone; the configured limit never moved
         mockMvc.perform(get("/budgets/" + budgetId)
                         .cookie(new Cookie("accessToken", token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.amountLimit").value(400));
+                .andExpect(jsonPath("$.amountLimit").value(400))
+                .andExpect(jsonPath("$.availableToUse").value(0))
+                .andExpect(jsonPath("$.remaining").value(400));
     }
 
     @Test
@@ -564,27 +590,102 @@ class BudgetFlowTest {
     }
 
     @Test
-    void aBudgetCanBeOverspentUsingOtherFunding() throws Exception {
+    void aBudgetCannotBeSpentPastItsCeiling() throws Exception {
 
         String token = signUpAndLogin(OWNER);
 
         String budget = createBudget(token, "Groceries", "100");
 
-        // funding lands in Salary, so Groceries keeps its 100 limit while the
-        // balance can still cover a larger expense
+        // funding lands in Salary, so the balance covers the expense even
+        // though Groceries itself has no room for it
         fund(token, "1000");
 
-        // exceeding a budget's limit is allowed -- you cannot un-spend real money
-        spend(token, "150", "Groceries");
+        mockMvc.perform(post("/transactions")
+                        .cookie(new Cookie("accessToken", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':150,'transactionType':'expense',"
+                                + "'budgetName':'Groceries'}")))
+                .andExpect(status().isBadRequest());
 
-        // the row needs a negative remaining and >100% to render over-budget
+        // rejected outright, so nothing was recorded against the budget
         mockMvc.perform(get("/budgets/" + extractNumber(budget, "id"))
                         .cookie(new Cookie("accessToken", token)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.spending").value(150))
+                .andExpect(jsonPath("$.spending").value(0))
                 .andExpect(jsonPath("$.amountLimit").value(100))
-                .andExpect(jsonPath("$.remaining").value(-50))
-                .andExpect(jsonPath("$.percentageUsed").value(150.00));
+                .andExpect(jsonPath("$.remaining").value(100));
+
+        // spending right up to 100% is still fine
+        spend(token, "100", "Groceries");
+
+        mockMvc.perform(get("/budgets/" + extractNumber(budget, "id"))
+                        .cookie(new Cookie("accessToken", token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.spending").value(100))
+                .andExpect(jsonPath("$.remaining").value(0))
+                .andExpect(jsonPath("$.percentageUsed").value(100.00));
+    }
+
+    @Test
+    void incomeOnABudgetUnlocksSpendingPastItsConfiguredLimit() throws Exception {
+
+        String token = signUpAndLogin(OWNER);
+
+        createBudget(token, "Groceries", "100");
+
+        // 150 is over the configured limit of 100 on its own
+        mockMvc.perform(post("/transactions")
+                        .cookie(new Cookie("accessToken", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':200,'transactionType':'income',"
+                                + "'budgetName':'Groceries'}")))
+                .andExpect(status().isOk());
+
+        // but the ceiling is now 100 + 200, so it fits
+        spend(token, "150", "Groceries");
+
+        mockMvc.perform(get("/budgets")
+                        .cookie(new Cookie("accessToken", token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].amountLimit").value(100))
+                .andExpect(jsonPath("$[0].availableToUse").value(200))
+                .andExpect(jsonPath("$[0].spending").value(150))
+                .andExpect(jsonPath("$[0].remaining").value(150));
+    }
+
+    @Test
+    void budgetsCannotTotalMoreThanTheOpeningBalancePlusIncome() throws Exception {
+
+        String token = signUpAndLogin(INTRUDER);
+
+        setInitialBalance(INTRUDER, "1000");
+
+        createBudget(token, "Groceries", "600");
+
+        // 600 + 500 would be 1100, past the 1000 opening balance
+        mockMvc.perform(post("/budgets")
+                        .cookie(new Cookie("accessToken", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'name':'Transport','amountLimit':500}")))
+                .andExpect(status().isBadRequest());
+
+        // 400 fits exactly
+        createBudget(token, "Transport", "400");
+
+        // income raises the allowance, so the earlier 500 now has room
+        mockMvc.perform(post("/transactions")
+                        .cookie(new Cookie("accessToken", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json("{'amount':500,'transactionType':'income',"
+                                + "'budgetName':'Groceries'}")))
+                .andExpect(status().isOk());
+
+        createBudget(token, "Travel", "500");
+
+        // and the opening balance itself was never rewritten
+        User user = userRepository.findByEmail(INTRUDER).orElseThrow();
+
+        assertThat(user.getInitialBalance()).isEqualByComparingTo(BigDecimal.valueOf(1000));
     }
 
     @Test

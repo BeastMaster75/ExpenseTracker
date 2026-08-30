@@ -7,6 +7,7 @@ import com.expensetracker.budget.dto.UpdateBudgetDto;
 import com.expensetracker.budget.entity.Budget;
 import com.expensetracker.budget.repository.BudgetRepository;
 import com.expensetracker.common.exception.AppException;
+import com.expensetracker.common.util.MoneyUtils;
 import com.expensetracker.user.entity.User;
 import com.expensetracker.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -50,6 +51,52 @@ public class BudgetService {
                 .orElseThrow(() -> new AppException("Budget not found", HttpStatus.NOT_FOUND));
     }
 
+    private User ownedUser(Long userId) {
+        return userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+    }
+
+    // How much the caller is allowed to have budgeted in total: the balance
+    // they opened the account with, plus every income they have booked since.
+    //
+    // initialBalance itself is never rewritten -- income raises the allowance
+    // by being added here, not by mutating the stored figure.
+    private BigDecimal allowance(User user) {
+        return MoneyUtils.orZero(user.getInitialBalance())
+                .add(MoneyUtils.orZero(user.getTotalIncome()));
+    }
+
+    // A budget may not push the user's total budgeted amount past their
+    // allowance -- otherwise the same money could be promised to several
+    // budgets at once.
+    //
+    // excludeBudgetId keeps the budget being edited out of the running total,
+    // so its own current limit is not counted twice against the new one.
+    private void assertWithinAllowance(User user, Long excludeBudgetId, BigDecimal newLimit) {
+
+        BigDecimal others = budgetRepository
+                .findAllByUserIdAndDeletedFalseOrderByNameAsc(user.getId())
+                .stream()
+                .filter(budget -> excludeBudgetId == null || !excludeBudgetId.equals(budget.getId()))
+                .map(Budget::getAmountLimit)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal total = others.add(MoneyUtils.orZero(newLimit));
+        BigDecimal allowance = allowance(user);
+
+        if (total.compareTo(allowance) > 0) {
+
+            log.warn("Budget rejected - allowance exceeded - userId: {}, total: {}, allowance: {}",
+                    user.getId(), total, allowance);
+
+            throw new AppException(
+                    "Budgets would total " + total + ", which exceeds your available "
+                            + allowance + ". Lower the limit or add income first.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
     @Transactional
     public Budget createBudget(CreateBudgetDto dto, String token) {
 
@@ -57,8 +104,7 @@ public class BudgetService {
 
         log.info("Creating budget for userId: {}", userId);
 
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+        User user = ownedUser(userId);
 
         Budget existing = budgetRepository
                 .findByUserIdAndName(userId, dto.getName())
@@ -71,6 +117,10 @@ public class BudgetService {
             throw new AppException("Budget with this name already exists", HttpStatus.CONFLICT);
         }
 
+        // A revived budget is soft-deleted, so it is not in the live total the
+        // check sums -- passing its id keeps that true either way.
+        assertWithinAllowance(user, existing != null ? existing.getId() : null, dto.getAmountLimit());
+
         Budget budget = existing != null ? existing : new Budget();
 
         budget.setUser(user);
@@ -78,8 +128,9 @@ public class BudgetService {
         budget.setAmountLimit(dto.getAmountLimit());
         budget.setDeleted(false);
 
-        // Spending is server-owned -- a new or revived budget starts empty.
+        // Both are server-owned -- a new or revived budget starts empty.
         budget.setSpending(BigDecimal.ZERO);
+        budget.setAvailableToUse(BigDecimal.ZERO);
 
         budget.setPeriodMonth(dto.getPeriodMonth() != null
                 ? dto.getPeriodMonth()
@@ -126,21 +177,28 @@ public class BudgetService {
                 .map(Budget::getAmountLimit)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        BigDecimal totalAvailableToUse = budgets.stream()
+                .map(Budget::getAvailableToUse)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         BigDecimal totalSpending = budgets.stream()
                 .map(Budget::getSpending)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // Measured against the same ceiling the per-budget figures use, so the
+        // card and the rows below it can never disagree.
+        BigDecimal totalCeiling = totalLimit.add(totalAvailableToUse);
+
         BudgetSummaryDto summary = new BudgetSummaryDto();
 
         summary.setTotalLimit(totalLimit);
+        summary.setTotalAvailableToUse(totalAvailableToUse);
         summary.setTotalSpending(totalSpending);
-        summary.setRemaining(totalLimit.subtract(totalSpending));
+        summary.setRemaining(totalCeiling.subtract(totalSpending));
         summary.setBudgetCount(budgets.size());
         summary.setPeriodMonth(LocalDate.now().withDayOfMonth(1));
 
-        // Same helper the per-budget percentage uses, so the card and the rows
-        // below it can never disagree. Handles a zero total limit.
-        summary.setPercentageUsed(Budget.percentage(totalSpending, totalLimit));
+        summary.setPercentageUsed(MoneyUtils.percentage(totalSpending, totalCeiling));
 
         return summary;
     }
@@ -167,7 +225,10 @@ public class BudgetService {
             budget.setName(dto.getName());
         }
 
+        // Only re-checked when the limit actually moves: a rename should not
+        // fail just because older data already sits above the allowance.
         if (dto.getAmountLimit() != null) {
+            assertWithinAllowance(ownedUser(userId), budget.getId(), dto.getAmountLimit());
             budget.setAmountLimit(dto.getAmountLimit());
         }
 
@@ -175,7 +236,8 @@ public class BudgetService {
             budget.setPeriodMonth(dto.getPeriodMonth());
         }
 
-        // Spending is never taken from the request -- see createBudget.
+        // Spending and availableToUse are never taken from the request -- see
+        // createBudget.
         Budget updated = budgetRepository.save(budget);
 
         log.info("Budget updated successfully - id: {}, userId: {}", id, userId);
