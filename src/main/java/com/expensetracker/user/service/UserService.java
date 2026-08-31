@@ -913,7 +913,9 @@ public class UserService {
 
         log.info("Fetching user - userId: {}", id);
 
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalseAndIsConfirmedFalse(id);
+        // Not ...AndIsConfirmedFalse: that matched only unconfirmed accounts, so
+        // logout and GET /users/{id} 404'd for everyone who had confirmed.
+        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
 
         if (userExist.isEmpty()) {
             log.warn("User not found - userId: {}", id);

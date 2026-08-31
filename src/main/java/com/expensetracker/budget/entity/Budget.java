@@ -1,5 +1,6 @@
 package com.expensetracker.budget.entity;
 
+import com.expensetracker.common.util.MoneyUtils;
 import com.expensetracker.user.entity.User;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
@@ -9,7 +10,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -46,8 +46,16 @@ public class Budget {
     @Column(nullable = false)
     private BigDecimal spending = BigDecimal.ZERO;
 
+    // The static allowance the user configured. Transactions never move it --
+    // income tops up availableToUse instead.
     @Column(name = "amount_limit", nullable = false)
     private BigDecimal amountLimit;
+
+    // Extra allowance granted by income booked against this budget. Server-
+    // owned like spending, and zeroed by the same monthly reset: it is an
+    // exception for the current month, not a permanent raise.
+    @Column(name = "available_to_use", nullable = false)
+    private BigDecimal availableToUse = BigDecimal.ZERO;
 
     @Column(name = "period_month", nullable = false)
     private LocalDate periodMonth;
@@ -61,35 +69,24 @@ public class Budget {
     @Column(name = "is_deleted", nullable = false)
     private boolean deleted = false;
 
+    // What this budget may actually spend this month: the static limit plus
+    // whatever income topped it up. Every spending rule measures against this,
+    // not against amountLimit alone.
+    @Transient
+    public BigDecimal getSpendingCeiling() {
+        return MoneyUtils.orZero(amountLimit).add(MoneyUtils.orZero(availableToUse));
+    }
+
     // Derived, not stored. Serialised with the budget so the client never has
     // to redo the maths -- and never has to handle the divide-by-zero itself.
     @Transient
     public BigDecimal getRemaining() {
-
-        if (amountLimit == null || spending == null) {
-            return BigDecimal.ZERO.setScale(2);
-        }
-
-        return amountLimit.subtract(spending);
+        return getSpendingCeiling().subtract(MoneyUtils.orZero(spending));
     }
 
     @Transient
     public BigDecimal getPercentageUsed() {
-        return percentage(spending, amountLimit);
-    }
-
-    // Shared with BudgetService#getSummary so a single budget and the totals
-    // card can never round differently. Free to exceed 100 -- overspending is
-    // a state the UI needs to show, not an error.
-    public static BigDecimal percentage(BigDecimal part, BigDecimal whole) {
-
-        if (part == null || whole == null || whole.signum() == 0) {
-            return BigDecimal.ZERO.setScale(2);
-        }
-
-        return part
-                .multiply(BigDecimal.valueOf(100))
-                .divide(whole, 2, RoundingMode.HALF_UP);
+        return MoneyUtils.percentage(spending, getSpendingCeiling());
     }
 
     @PrePersist

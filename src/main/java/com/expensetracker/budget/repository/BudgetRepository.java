@@ -31,19 +31,25 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
 
     List<Budget> findAllByUserId(Long userId);
 
-    // Zeroes spending for every live budget not already on the given period.
-    // Bulk update so the monthly reset does not load every budget into memory.
-    // The periodMonth guard makes a re-run within the same month a no-op.
+    // Zeroes spending and the income top-up for every live budget not already
+    // on the given period. Bulk update so the monthly reset does not load every
+    // budget into memory. The periodMonth guard makes a re-run within the same
+    // month a no-op.
+    //
+    // availableToUse is cleared alongside spending because an income top-up is
+    // an allowance for one month only; leaving it would carry the exception
+    // forward and quietly inflate next month's ceiling.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             UPDATE Budget b
             SET b.spending = :zero,
+                b.availableToUse = :zero,
                 b.periodMonth = :periodMonth,
                 b.updatedAt = CURRENT_TIMESTAMP
             WHERE b.deleted = false
               AND (b.periodMonth IS NULL OR b.periodMonth <> :periodMonth)
             """)
-    int resetSpendingForPeriod(
+    int resetForPeriod(
             @Param("zero") BigDecimal zero,
             @Param("periodMonth") LocalDate periodMonth
     );

@@ -16,8 +16,6 @@ public class UpdateTransactionDto {
 
     private String transactionType;
 
-    // Only needed when turning a transaction into an expense, or moving an
-    // existing expense to a different budget.
     private String budgetName;
 
     private String description;
