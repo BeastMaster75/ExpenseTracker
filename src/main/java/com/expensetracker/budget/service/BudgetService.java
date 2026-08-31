@@ -62,8 +62,8 @@ public class BudgetService {
     // initialBalance itself is never rewritten -- income raises the allowance
     // by being added here, not by mutating the stored figure.
     private BigDecimal allowance(User user) {
-        return MoneyUtils.orZero(user.getInitialBalance())
-                .add(MoneyUtils.orZero(user.getTotalIncome()));
+        return MoneyUtils.orZero(user.getBalance());
+
     }
 
     // A budget may not push the user's total budgeted amount past their

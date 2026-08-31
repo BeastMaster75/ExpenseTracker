@@ -60,6 +60,9 @@ public class UserService {
     private final ObjectMapper objectMapper;
     private final PasswordHistoryService passwordHistoryService;
 
+    @Value("${jwt.refresh-secret}")
+    private String refreshSecret;
+
     private String generateEmailVerificationToken() {
         return UUID.randomUUID().toString();
     }
@@ -101,9 +104,6 @@ public class UserService {
         this.objectMapper = objectMapper;
         this.passwordHistoryService = passwordHistoryService;
     }
-
-    @Value("${jwt.refresh-secret}")
-    private String refreshSecret;
 
     public User createUser(CreateUserDto user) {
 
@@ -693,11 +693,13 @@ public class UserService {
                     );
                 });
 
-        passwordHistoryService.assertNotReused(existingUser, dto.getNewPassword());
+        String decryptedNewPassword = EncryptAndDecryptSecurity.decrypt(dto.getNewPassword());
+
+        passwordHistoryService.assertNotReused(existingUser,decryptedNewPassword);
 
         passwordHistoryService.record(existingUser, existingUser.getPassword());
 
-        existingUser.setPassword(hashSecurity.hash(dto.getNewPassword()));
+        existingUser.setPassword(hashSecurity.hash(decryptedNewPassword));
 
         existingUser.setChangeCredential(new Date());
 
@@ -712,6 +714,7 @@ public class UserService {
                 "Password changed successfully"
         );
     }
+
     public Map<String, String> resendForgetPasswordOtp(ResendOtpDto dto) {
 
         log.info(
@@ -845,14 +848,7 @@ public class UserService {
 
         log.info("Fetching user - userId: {}", id);
 
-<<<<<<< Updated upstream
-        // Not ...AndIsConfirmedFalse: that matched only unconfirmed accounts, so
-        // logout and GET /users/{id} 404'd for everyone who had confirmed.
-        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
-=======
         Optional<User> userExist = userRepository.findByIdAndIsDeletedFalseAndIsConfirmedTrue(id);
->>>>>>> Stashed changes
-
         if (userExist.isEmpty()) {
             log.warn("User not found - userId: {}", id);
 
