@@ -6,13 +6,16 @@ import com.expensetracker.user.dto.*;
 import com.expensetracker.user.entity.User;
 import com.expensetracker.user.service.UserService;
 import io.jsonwebtoken.Claims;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -340,24 +343,46 @@ public class UserController {
 
     @PostMapping("/verifyForgetPasswordOtp")
     public Map<String, String> verifyForgetPasswordOtp(
-            @Valid @RequestBody VerifyOtpDto dto
+            @Valid @RequestBody VerifyOtpDto dto,
+            HttpServletResponse response
     ) {
 
-        return userService.verifyForgetPasswordOtp(dto);
-    }
+        String otpToken = userService.verifyForgetPasswordOtp(dto);
 
+        ResponseCookie cookie = ResponseCookie.from("otpToken", otpToken)
+                .httpOnly(true)
+                .secure(false)
+                .path("/")
+                .maxAge(Duration.ofMinutes(20))
+                .sameSite("Lax")
+                .build();
+
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+
+        return Map.of(
+                "message",
+                "OTP verified successfully"
+        );
+    }
     // =========================================================
     // Reset Password
     // =========================================================
 
     @PatchMapping("/resetPassword")
     public Map<String, String> resetPassword(
-            @Valid @RequestBody ResetPasswordDto dto
+            @Valid @RequestBody ResetPasswordDto dto,
+            @CookieValue(value = "otpToken", required = false) String otpToken
     ) {
 
-        return userService.resetPassword(dto);
-    }
+        if (otpToken == null || otpToken.isEmpty()) {
+            throw new AppException(
+                    "OTP token is missing",
+                    HttpStatus.UNAUTHORIZED
+            );
+        }
 
+        return userService.resetPassword(dto, otpToken);
+    }
 
 
 //    @PatchMapping("/resetPassword")
@@ -445,8 +470,8 @@ public class UserController {
     // Balance
     // =========================================================
 
-    @GetMapping("/balance")
-    public BalanceDto getBalanceAndIncomeAndExpense(
+    @GetMapping("/balanceSummary")
+    public BalanceSummaryDto getBalanceSummary(
 
             @CookieValue(
                     value = "accessToken",
@@ -455,7 +480,7 @@ public class UserController {
             String accessToken
     ) {
 
-        return userService.getBalanceAndIncomeAndExpense(
+        return userService.getBalanceSummary(
                 getAccessToken(accessToken)
         );
     }
@@ -485,6 +510,25 @@ public class UserController {
     ) {
         return userService.updateInitialBalance(
                 dto,
+                getAccessToken(accessToken)
+        );
+    }
+
+    // =========================================================
+    // Get Initial Balance
+    // =========================================================
+
+    @GetMapping("/initialbalance")
+    public GetInitialBalanceDto getInitialBalance(
+
+            @CookieValue(
+                    value = "accessToken",
+                    required = false
+            )
+            String accessToken
+    ) {
+
+        return userService.getInitialBalance(
                 getAccessToken(accessToken)
         );
     }

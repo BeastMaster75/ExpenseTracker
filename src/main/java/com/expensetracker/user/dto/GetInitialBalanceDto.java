@@ -7,9 +7,9 @@ import java.math.BigDecimal;
 
 @Getter
 @AllArgsConstructor
-public class BalanceDto {
+public class GetInitialBalanceDto {
 
-    private BigDecimal balance;
-    private BigDecimal totalIncome;
-    private BigDecimal totalExpense;
+
+
+    private BigDecimal initialBalance;
 }

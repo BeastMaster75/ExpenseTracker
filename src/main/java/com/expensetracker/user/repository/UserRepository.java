@@ -13,6 +13,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByIdAndIsDeletedFalse(Long id);
     Optional<User> findByEmailAndIsDeletedFalse(String email);
     Optional<User> findByEmailVerificationTokenHash(String tokenHash);
-    Page<User> findAllByIsDeletedFalseAndIsConfirmedFalse(Pageable pageable);
-    Optional<User> findByIdAndIsDeletedFalseAndIsConfirmedFalse(Long id);
+    Page<User> findAllByIsDeletedFalseAndIsConfirmedTrue(Pageable pageable);
+    Optional<User> findByIdAndIsDeletedFalseAndIsConfirmedTrue(Long id);
 }

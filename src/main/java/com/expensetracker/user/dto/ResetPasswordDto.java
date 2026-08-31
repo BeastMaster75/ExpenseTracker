@@ -8,9 +8,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class ResetPasswordDto {
 
-    @NotBlank(message = "OTP token is required")
-    private String otpToken;
-
     @NotBlank(message = "New password is required")
     private String newPassword;
 }

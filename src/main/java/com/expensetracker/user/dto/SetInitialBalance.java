@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class SetInitialBalance {
 
-    @NotBlank
+//    @NotBlank
     private BigDecimal initialBalance;
 
 }

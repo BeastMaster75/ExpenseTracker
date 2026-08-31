@@ -1,6 +1,6 @@
 package com.expensetracker.user.dto;
 
-import com.expensetracker.common.validation.StrongPassword;
+//import com.expensetracker.common.validation.StrongPassword;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,6 +15,6 @@ public class UpdatePasswordDto {
     private String oldPassword;
 
     @NotBlank(message = "newPassword is required")
-    @StrongPassword
+//    @StrongPassword
     private String newPassword;
 }

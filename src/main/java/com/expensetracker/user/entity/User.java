@@ -59,6 +59,5 @@ public class User {
 
     @JsonIgnore
     @Column()
-    @Temporal(TemporalType.TIMESTAMP)
     private Date emailVerificationTokenExpiresAt;
 }

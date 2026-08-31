@@ -39,6 +39,9 @@ import java.util.HexFormat;
 @Service
 public class UserService {
 
+    @Value("${jwt.otp-secret}")
+    private String otpSecret;
+
     private static final String ALL_USERS_KEY = "users::all";
 
     private static final String CONFIRM_EMAIL_TYPE = "confirm_email";
@@ -604,47 +607,32 @@ public class UserService {
 //        );
 //    }
 
-    @Value("${jwt.otp-secret}")
-    private String otpSecret;
-    public Map<String, String> verifyForgetPasswordOtp(
-            VerifyOtpDto dto
-    ) {
 
-        log.info(
-                "Verify forget password OTP started - email: {}",
-                dto.getEmail()
+    public String verifyForgetPasswordOtp(VerifyOtpDto dto) {
+
+        log.info("Verify forget password OTP started - email: {}", dto.getEmail());
+
+        User existingUser = userRepository.findByEmailAndIsDeletedFalse(dto.getEmail())
+                .orElseThrow(() -> {
+
+                    log.warn("Verify OTP failed - user not found: {}", dto.getEmail());
+
+                    return new AppException(
+                            "User not found",
+                            HttpStatus.NOT_FOUND
+                    );
+                });
+
+        String otpExist = redisService.get(
+                redisService.otpKey(
+                        existingUser.getEmail(),
+                        FORGET_PASSWORD_TYPE
+                )
         );
-
-        User existingUser =
-                userRepository
-                        .findByEmailAndIsDeletedFalse(dto.getEmail())
-                        .orElseThrow(() -> {
-
-                            log.warn(
-                                    "Verify OTP failed - user not found: {}",
-                                    dto.getEmail()
-                            );
-
-                            return new AppException(
-                                    "User not found",
-                                    HttpStatus.NOT_FOUND
-                            );
-                        });
-
-        String otpExist =
-                redisService.get(
-                        redisService.otpKey(
-                                existingUser.getEmail(),
-                                FORGET_PASSWORD_TYPE
-                        )
-                );
 
         if (otpExist == null || otpExist.isEmpty()) {
 
-            log.warn(
-                    "Verify OTP failed - OTP expired - email: {}",
-                    existingUser.getEmail()
-            );
+            log.warn("Verify OTP failed - OTP expired - email: {}", existingUser.getEmail());
 
             throw new AppException(
                     "OTP expired or incorrect",
@@ -654,10 +642,7 @@ public class UserService {
 
         if (!hashSecurity.compare(dto.getOtp(), otpExist)) {
 
-            log.warn(
-                    "Verify OTP failed - invalid OTP - email: {}",
-                    existingUser.getEmail()
-            );
+            log.warn("Verify OTP failed - invalid OTP - email: {}", existingUser.getEmail());
 
             throw new AppException(
                     "Invalid OTP",
@@ -665,9 +650,7 @@ public class UserService {
             );
         }
 
-
-        String otpToken =
-                tokenService.generateOtpToken(existingUser);
+        String otpToken = tokenService.generateOtpToken(existingUser);
 
         redisService.delete(
                 redisService.otpKey(
@@ -676,42 +659,21 @@ public class UserService {
                 )
         );
 
-        log.info(
-                "Forget password OTP verified successfully - userId: {}",
-                existingUser.getId()
-        );
+        log.info("Forget password OTP verified successfully - userId: {}", existingUser.getId());
 
-        return Map.of(
-                "message",
-                "OTP verified successfully",
-                "otpToken",
-                otpToken
-        );
+        return otpToken;
     }
 
-
-    public Map<String, String> resetPassword(
-            ResetPasswordDto dto
-    ) {
+    public Map<String, String> resetPassword(ResetPasswordDto dto, String otpToken) {
 
         log.info("Reset password started");
 
         Claims claims;
 
         try {
-
-//            String otpSecret = "";
-            claims =
-                    tokenService.verifyToken(
-                            dto.getOtpToken(),
-                            otpSecret
-                    );
-
+            claims = tokenService.verifyToken(otpToken, otpSecret);
         } catch (Exception e) {
-
-            log.warn(
-                    "Reset password failed - invalid or expired OTP token"
-            );
+            log.warn("Reset password failed - invalid or expired OTP token");
 
             throw new AppException(
                     "Invalid or expired OTP token",
@@ -719,67 +681,37 @@ public class UserService {
             );
         }
 
-        Long userId =
-                claims.get(
-                        "id",
-                        Long.class
-                );
+        Long userId = claims.get("id", Long.class);
 
-        User existingUser =
-                userRepository
-                        .findByIdAndIsDeletedFalse(userId)
-                        .orElseThrow(() -> {
+        User existingUser = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> {
+                    log.warn("Reset password failed - user not found: {}", userId);
 
-                            log.warn(
-                                    "Reset password failed - user not found: {}",
-                                    userId
-                            );
+                    return new AppException(
+                            "User not found",
+                            HttpStatus.NOT_FOUND
+                    );
+                });
 
-                            return new AppException(
-                                    "User not found",
-                                    HttpStatus.NOT_FOUND
-                            );
-                        });
+        passwordHistoryService.assertNotReused(existingUser, dto.getNewPassword());
 
-        passwordHistoryService.assertNotReused(
-                existingUser,
-                dto.getNewPassword()
-        );
+        passwordHistoryService.record(existingUser, existingUser.getPassword());
 
-        passwordHistoryService.record(
-                existingUser,
-                existingUser.getPassword()
-        );
+        existingUser.setPassword(hashSecurity.hash(dto.getNewPassword()));
 
-        existingUser.setPassword(
-                hashSecurity.hash(
-                        dto.getNewPassword()
-                )
-        );
+        existingUser.setChangeCredential(new Date());
 
-        existingUser.setChangeCredential(
-                new Date()
-        );
-
-        redisService.delete(
-                ALL_USERS_KEY
-        );
+        redisService.delete(ALL_USERS_KEY);
 
         userRepository.save(existingUser);
 
-        log.info(
-                "Password reset successfully - userId: {}",
-                existingUser.getId()
-        );
+        log.info("Password reset successfully - userId: {}", existingUser.getId());
 
         return Map.of(
                 "message",
                 "Password changed successfully"
         );
     }
-
-
-
     public Map<String, String> resendForgetPasswordOtp(ResendOtpDto dto) {
 
         log.info(
@@ -863,7 +795,7 @@ public class UserService {
 
         Pageable pageable = PageRequest.of(page, size);
 
-        Page<User> users = userRepository.findAllByIsDeletedFalseAndIsConfirmedFalse(pageable);
+        Page<User> users = userRepository.findAllByIsDeletedFalseAndIsConfirmedTrue(pageable);
 
         log.info("Users fetched successfully - count: {}", users.getNumberOfElements());
 
@@ -913,9 +845,13 @@ public class UserService {
 
         log.info("Fetching user - userId: {}", id);
 
+<<<<<<< Updated upstream
         // Not ...AndIsConfirmedFalse: that matched only unconfirmed accounts, so
         // logout and GET /users/{id} 404'd for everyone who had confirmed.
         Optional<User> userExist = userRepository.findByIdAndIsDeletedFalse(id);
+=======
+        Optional<User> userExist = userRepository.findByIdAndIsDeletedFalseAndIsConfirmedTrue(id);
+>>>>>>> Stashed changes
 
         if (userExist.isEmpty()) {
             log.warn("User not found - userId: {}", id);
@@ -995,7 +931,7 @@ public class UserService {
         );
     }
 
-    public BalanceDto getBalanceAndIncomeAndExpense(String token) {
+    public BalanceSummaryDto getBalanceSummary(String token) {
 
         Claims claims = authentication.auth(token, false);
         Long userId = claims.get("id", Long.class);
@@ -1012,10 +948,38 @@ public class UserService {
 
         User user = userExist.get();
 
-        return new BalanceDto(
+
+
+        return new BalanceSummaryDto(
+
                 user.getBalance(),
                 user.getTotalIncome(),
                 user.getTotalExpense()
+
+        );
+    }
+
+    public GetInitialBalanceDto getInitialBalance(String token) {
+
+        Claims claims = authentication.auth(token, false);
+        Long userId = claims.get("id", Long.class);
+
+        Optional<User> userExist =
+                userRepository.findByIdAndIsDeletedFalse(userId);
+
+        if (userExist.isEmpty()) {
+            throw new AppException(
+                    "User not exist",
+                    HttpStatus.NOT_FOUND
+            );
+        }
+
+        User user = userExist.get();
+
+
+
+        return new GetInitialBalanceDto(
+                user.getInitialBalance()
         );
     }
 
@@ -1034,6 +998,7 @@ public class UserService {
                 ));
 
         existingUser.setInitialBalance(dto.getInitialBalance());
+        existingUser.setBalance(existingUser.getBalance().add(existingUser.getInitialBalance()));
 
         userRepository.save(existingUser);
 
@@ -1059,7 +1024,13 @@ public class UserService {
                         HttpStatus.NOT_FOUND
                 ));
 
-        existingUser.setInitialBalance(dto.getNewBalance());
+        BigDecimal oldInitialBalance = existingUser.getInitialBalance();
+        BigDecimal newInitialBalance = dto.getNewBalance();
+
+        BigDecimal difference = newInitialBalance.subtract(oldInitialBalance);
+
+        existingUser.setInitialBalance(newInitialBalance);
+        existingUser.setBalance(existingUser.getBalance().add(difference));
 
         userRepository.save(existingUser);
 
@@ -1070,5 +1041,4 @@ public class UserService {
                 "Initial balance updated successfully"
         );
     }
-
 }
