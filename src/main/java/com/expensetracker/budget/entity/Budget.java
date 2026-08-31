@@ -54,7 +54,16 @@ public class Budget {
     // Extra allowance granted by income booked against this budget. Server-
     // owned like spending, and zeroed by the same monthly reset: it is an
     // exception for the current month, not a permanent raise.
-    @Column(name = "available_to_use", nullable = false)
+    //
+    // The default is spelled out so ddl-auto=update can add this column to a
+    // table that already has rows -- without it Postgres rejects the ALTER
+    // ("contains null values"), Hibernate only logs the failure, and the app
+    // then boots against a schema missing the column.
+    @Column(
+            name = "available_to_use",
+            nullable = false,
+            columnDefinition = "numeric(38,2) default 0"
+    )
     private BigDecimal availableToUse = BigDecimal.ZERO;
 
     @Column(name = "period_month", nullable = false)
