@@ -130,7 +130,7 @@ public class BudgetService {
 
         // Both are server-owned -- a new or revived budget starts empty.
         budget.setSpending(BigDecimal.ZERO);
-        budget.setAvailableToUse(BigDecimal.ZERO);
+        budget.setAvailableToUse(budget.getAmountLimit());
 
         budget.setPeriodMonth(dto.getPeriodMonth() != null
                 ? dto.getPeriodMonth()

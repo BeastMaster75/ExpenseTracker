@@ -2,10 +2,12 @@ package com.expensetracker.transaction.util;
 
 import com.expensetracker.budget.entity.Budget;
 import com.expensetracker.budget.repository.BudgetRepository;
+import com.expensetracker.common.exception.AppException;
 import com.expensetracker.transaction.entity.Transaction;
 import com.expensetracker.user.entity.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -47,7 +49,9 @@ public class TransactionLedger {
         log.info("Applied expense {} - userId: {}, balance: {} -> {}, totalExpense: {}",
                 tx.getAmount(), user.getId(), before, user.getBalance(), user.getTotalExpense());
 
-        addToSpending(tx.getBudget(), tx.getAmount());
+        addToSpending(tx.getBudget(), tx.getAmount() , tx);
+
+
     }
 
     public void reverse(Transaction tx, User user) {
@@ -73,7 +77,7 @@ public class TransactionLedger {
         log.info("Reversed expense {} - userId: {}, balance: {} -> {}, totalExpense: {}",
                 tx.getAmount(), user.getId(), before, user.getBalance(), user.getTotalExpense());
 
-        addToSpending(tx.getBudget(), tx.getAmount().negate());
+        addToSpending(tx.getBudget(), tx.getAmount().negate() , tx);
     }
 
     private void addToAvailable(Budget budget, BigDecimal delta) {
@@ -92,10 +96,15 @@ public class TransactionLedger {
                 budget.getId(), budget.getName(), before, budget.getAvailableToUse(), delta);
     }
 
-    private void addToSpending(Budget budget, BigDecimal delta) {
+    private void addToSpending(Budget budget, BigDecimal delta , Transaction tx) {
 
         if (budget == null) {
             return;
+        }
+        if (budget.getSpending()
+                .add(tx.getAmount())
+                .compareTo(budget.getAmountLimit()) > 0) {
+       throw new AppException("amount limit exceeded " , HttpStatus.BAD_REQUEST);
         }
 
         BigDecimal before = budget.getSpending();
