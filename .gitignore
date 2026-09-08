@@ -26,6 +26,10 @@ buildNumber.properties
 .env.local
 .env.*.local
 
+# Local secrets: Spring Boot auto-loads ./config/ and it overrides
+# src/main/resources/application.properties. Never commit this.
+/config/
+
 # Logs
 logs/
 *.log
